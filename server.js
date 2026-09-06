@@ -10,9 +10,14 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 
+// 🛠️ THE BULLETPROOF FILE LOCATOR
+// It looks in the 'public' folder first, and if they aren't there, it looks in the main folder!
 app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(__dirname));
+
 app.use(express.json());
 
+// --- DATABASE SETUP ---
 const dbDir = path.join(__dirname, 'database');
 if (!fs.existsSync(dbDir)) fs.mkdirSync(dbDir);
 const db = new sqlite3.Database(path.join(dbDir, 'leaderboard.db'));
@@ -25,6 +30,7 @@ db.serialize(() => {
     )`);
 });
 
+// --- APIS ---
 app.post('/api/score', (req, res) => {
     const { uniqueId, username, profilePic, game, points } = req.body;
     const col = game === 'contexto' ? 'contexto_score' : game === 'wordsearch' ? 'wordsearch_score' : 'word500_score';
@@ -45,12 +51,12 @@ app.post('/api/reset_scores', (req, res) => {
     });
 });
 
+// --- TIKTOK CONNECTION ---
 let chatQueue = [];
 setInterval(() => { if (chatQueue.length > 0) io.emit('chat', chatQueue.shift()); }, 100);
 
 let tiktokLiveConnection = null;
 
-// The Frontend will send the username to connect to
 io.on('connection', (socket) => {
     socket.on('connect_tiktok', (username) => {
         if(tiktokLiveConnection) {
@@ -76,6 +82,16 @@ io.on('connection', (socket) => {
     });
 });
 
-// Render/Heroku uses process.env.PORT, default to 3000 locally
+// --- ULTIMATE FALLBACK ROUTE ---
+app.get('/', (req, res) => {
+    if (fs.existsSync(path.join(__dirname, 'public', 'index.html'))) {
+        res.sendFile(path.join(__dirname, 'public', 'index.html'));
+    } else if (fs.existsSync(path.join(__dirname, 'index.html'))) {
+        res.sendFile(path.join(__dirname, 'index.html'));
+    } else {
+        res.send("<h1 style='color:red; font-family:sans-serif; padding: 20px;'>Error 404: UI Files Missing</h1><p style='font-family:sans-serif; padding: 0 20px;'>Your server is running perfectly, but <b>index.html</b> was not found in your GitHub repository. Please ensure you uploaded index.html, style.css, and main.js to your GitHub.</p>");
+    }
+});
+
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => console.log(`🚀 ARCADE HUB RUNNING ON PORT ${PORT}`));
