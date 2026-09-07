@@ -1,212 +1,211 @@
 const socket = io();
 let activeGame = 'word500', difficulty = 'moderate', wordLength = 5, sysMode = 'preview';
-let secretWord = "", dictCommon = {}, dictAll = {}, isGameOver = false, keyUsed = new Set();
-let blossomData = { center: '', outer: [], solutions: [] };
+let dictAll = {}, dictCommon = {}, keyUsed = new Set(), secretWord = "", preloadedDef = "", isGameOver = false;
+let contextoData = [], contextoGuesses = [], hintLevel = 0;
 let memoryData = { cards: [], flipped: [], matches: 0 };
-let contextoGuesses = [], contextoData = [];
+let blossomData = { center: '', letters: [], found: [] };
 
-// 1. INITIALIZE DRAGGABLE RULES
+// DRAGGABLE INITIALIZATION
 gsap.registerPlugin(Draggable);
-Draggable.create("#rules-container", { type: "x,y", edgeResistance: 0.65, bounds: "body" });
+Draggable.create("#draggable-rules", { bounds: "body", edgeResistance: 0.65 });
 
-// 2. DICTIONARIES
-async function loadDicts() {
-    const rC = await fetch('https://raw.githubusercontent.com/first20hours/google-10000-english/master/google-10000-english-no-swears.txt');
-    const textC = await rC.text();
-    textC.split('\n').forEach(w => {
-        let word = w.trim().toUpperCase();
-        if(word.length > 2) {
-            if(!dictCommon[word.length]) dictCommon[word.length] = [];
-            dictCommon[word.length].push(word);
-        }
-    });
-    startNewRound();
+// 📚 LOAD DICTS
+async function loadDictionaries() {
+    try {
+        const rC = await fetch('https://raw.githubusercontent.com/first20hours/google-10000-english/master/google-10000-english-no-swears.txt');
+        const textCommon = await rC.text();
+        textCommon.split(/\r?\n/).forEach(w => { 
+            const c = w.trim().toUpperCase(); 
+            if(c.length > 2) { if(!dictCommon[c.length]) dictCommon[c.length]=[]; dictCommon[c.length].push(c); }
+        });
+        const rA = await fetch('https://raw.githubusercontent.com/dwyl/english-words/master/words_alpha.txt');
+        const textAll = await rA.text();
+        textAll.split(/\r?\n/).forEach(w => { 
+            const c = w.trim().toUpperCase(); 
+            if(!dictAll[c.length]) dictAll[c.length]=[]; dictAll[c.length].push(c); 
+        });
+        startNewRound();
+    } catch (err) { console.error("Dict Error"); }
 }
-loadDicts();
+loadDictionaries();
 
-// 3. GAME ROUTING
+// 🎮 GAME ROUTING
 function startNewRound() {
-    isGameOver = false; keyUsed.clear();
-    document.getElementById('game-board').innerHTML = "";
-    if (activeGame === 'word500') setupWord500();
-    else if (activeGame === 'contexto') setupContexto();
-    else if (activeGame === 'wordsearch') setupWordSearch();
-    else if (activeGame === 'memory') setupMemory();
-    else if (activeGame === 'blossom') setupBlossom();
+    isGameOver = false; keyUsed.clear(); hintLevel = 0;
+    const board = document.getElementById('game-board');
+    board.innerHTML = ""; updateInstructions(); fetchLeaderboard();
+    if(activeGame === 'word500') setupWord500(); 
+    else if(activeGame === 'contexto') setupContexto(); 
+    else if(activeGame === 'memory') setupMemory();
+    else if(activeGame === 'blossom') setupBlossom();
 }
 
-// --- WORD 500 (Cleaned up keyboard & strict words) ---
+// 🟩 WORD 500 LOGIC
 function setupWord500() {
     document.getElementById('game-title').innerText = "WORD 500";
-    let list = (difficulty === 'easy') ? dictCommon[wordLength] : dictCommon[wordLength]; 
+    let list = (difficulty === 'easy') ? dictCommon[wordLength].filter(w => !w.endsWith('S')) : dictCommon[wordLength];
     secretWord = list[Math.floor(Math.random() * list.length)];
     renderKeyboard();
-    document.getElementById('game-instructions').innerText = `Guess the ${wordLength} letter word!`;
 }
 
 function renderKeyboard() {
-    const kb = document.getElementById('virtual-keyboard');
-    kb.style.display = 'flex';
+    const vK = document.getElementById('virtual-keyboard');
+    vK.style.display = 'flex';
     const rows = ["QWERTYUIOP", "ASDFGHJKL", "ZXCVBNM"];
-    kb.innerHTML = rows.map(r => `<div class="kbd-row flex justify-center gap-1 mb-1">${r.split('').map(l => `<div class="key-btn ${keyUsed.has(l)?'used':''}" style="width:30px">${l}</div>`).join('')}</div>`).join('');
+    vK.innerHTML = rows.map(r => `<div class="kbd-row">${r.split('').map(l => `<div class="key-btn ${keyUsed.has(l)?'used':''}">${l}</div>`).join('')}</div>`).join('');
 }
 
-// --- CONTEXTO (Improved Difficulty & Overlap Fix) ---
+// 🎯 CONTEXTO LOGIC
 async function setupContexto() {
     document.getElementById('game-title').innerText = "CONTEXTO";
-    contextoGuesses = [];
-    const len = (difficulty === 'easy') ? 4 : (difficulty === 'moderate') ? 6 : 8;
+    contextoGuesses = []; 
+    let len = difficulty === 'easy' ? 4 : difficulty === 'moderate' ? 6 : 8;
     secretWord = dictCommon[len][Math.floor(Math.random() * dictCommon[len].length)];
-    const res = await fetch(`https://api.datamuse.com/words?ml=${secretWord}&max=500`);
-    const data = await res.json();
-    contextoData = data.map(d => d.word.toUpperCase());
-    contextoData.unshift(secretWord);
-    document.getElementById('game-board').innerHTML = `<div class="contexto-list" id="ctx-board"></div>`;
+    try {
+        const res = await fetch(`https://api.datamuse.com/words?ml=${secretWord}&max=1000`);
+        const data = await res.json();
+        contextoData = data.map(i => i.word.toUpperCase()); 
+        contextoData.unshift(secretWord);
+        document.getElementById('game-board').innerHTML = `<div class="w-full flex flex-col gap-2" id="contexto-board"></div>`;
+    } catch (e) { activeGame = 'word500'; startNewRound(); }
 }
 
-// --- MEMORY MATCH (New Game) ---
+// 🧠 MEMORY LOGIC
 function setupMemory() {
     document.getElementById('game-title').innerText = "MEMORY MATCH";
-    const pairs = difficulty === 'easy' ? 4 : difficulty === 'moderate' ? 6 : 8;
-    const icons = ['🍎','🍌','⭐','💎','🍀','🔥','🌈','🍕','🎈','🚀'];
+    const pairs = difficulty === 'easy' ? 4 : difficulty === 'moderate' ? 6 : difficulty === 'hard' ? 10 : 15;
+    const icons = ['🍎','🍌','⭐','💎','🍀','🔥','🌈','🍕','🎈','🚀','🦄','👾','🐱','🐶','🦊'];
     let selected = icons.slice(0, pairs);
-    let board = [...selected, ...selected].sort(() => Math.random() - 0.5);
-    memoryData = { cards: board, flipped: [], matches: 0 };
-    
-    let html = `<div class="memory-grid" style="grid-template-columns: repeat(${pairs/2}, 1fr)">`;
-    board.forEach((icon, i) => html += `<div class="memory-card" id="mem-${i}" onclick="flipCard(${i})">?</div>`);
+    let boardCards = [...selected, ...selected].sort(() => Math.random() - 0.5);
+    memoryData = { cards: boardCards, flipped: [], matches: 0 };
+    let cols = Math.ceil(Math.sqrt(boardCards.length));
+    let html = `<div class="memory-grid" style="grid-template-columns: repeat(${cols}, 1fr)">`;
+    boardCards.forEach((icon, i) => html += `<div class="memory-card" id="mem-${i}">?</div>`);
     document.getElementById('game-board').innerHTML = html + `</div>`;
 }
 
-window.flipCard = (i) => {
-    if(memoryData.flipped.length === 2 || memoryData.flipped.includes(i)) return;
-    const el = document.getElementById(`mem-${i}`);
-    el.innerText = memoryData.cards[i]; el.classList.add('flipped');
-    memoryData.flipped.push(i);
-    if(memoryData.flipped.length === 2) {
-        setTimeout(checkMemoryMatch, 1000);
-    }
-};
-
-function checkMemoryMatch() {
-    const [a, b] = memoryData.flipped;
-    if(memoryData.cards[a] === memoryData.cards[b]) {
-        memoryData.matches++;
-        if(memoryData.matches === memoryData.cards.length / 2) triggerEndGame({username:'Audience'}, 'CLEARED', 10);
-    } else {
-        document.getElementById(`mem-${a}`).innerText = "?";
-        document.getElementById(`mem-${b}`).innerText = "?";
-        document.getElementById(`mem-${a}`).classList.remove('flipped');
-        document.getElementById(`mem-${b}`).classList.remove('flipped');
-    }
-    memoryData.flipped = [];
-}
-
-// --- BLOSSOM (New Game) ---
+// 🌸 BLOSSOM LOGIC
 function setupBlossom() {
     document.getElementById('game-title').innerText = "BLOSSOM";
-    const pangrams = ["ACQUIRE", "JOURNEY", "FOCUSED", "PROBLEM", "WORKING", "QUALITY", "NETWORK"];
-    const base = pangrams[Math.floor(Math.random() * pangrams.length)];
-    const letters = base.split('');
-    blossomData = { center: letters[0], outer: letters.slice(1), found: [] };
-    
-    let html = `<div class="blossom-container">`;
-    html += `<div class="hex-cell hex-center">${blossomData.center}</div>`;
-    blossomData.outer.forEach((l, i) => html += `<div class="hex-cell hex-${i+1}">${l}</div>`);
-    document.getElementById('game-board').innerHTML = html + `</div><div id="blossom-found" class="mt-4 text-xs font-bold text-teal-400">Words: 0</div>`;
+    const pangrams = ["ACQUIRE", "JOURNEY", "FOCUSED", "WORKING", "QUALITY", "NETWORK", "VILLAGE"];
+    const base = pangrams[Math.floor(Math.random()*pangrams.length)];
+    const letters = [...new Set(base.split(''))];
+    blossomData = { center: letters[0], letters: letters, found: [] };
+    let html = `<div class="blossom-grid">`;
+    html += `<div class="blossom-hex hex-center">${blossomData.center}</div>`;
+    blossomData.letters.slice(1).forEach((l, i) => html += `<div class="blossom-hex hex-${i+1}">${l}</div>`);
+    document.getElementById('game-board').innerHTML = html + `</div><div id="blossom-score" class="mt-4 text-xl font-bold">FOUND: 0</div>`;
 }
 
-// 4. INPUT PROCESSING
+// ⌨️ INPUT HANDLING
 function processInput(guess, user) {
-    if(isGameOver) return;
+    if (isGameOver) return;
     guess = guess.trim().toUpperCase();
+    if (!/^[A-Z]+$/.test(guess)) return;
 
-    if(activeGame === 'word500') {
-        if(guess.length !== secretWord.length) return;
-        guess.split('').forEach(l => { keyUsed.add(l); });
-        renderKeyboard();
-        let green = 0, yellow = 0;
-        let sec = secretWord.split(''), g = guess.split('');
-        g.forEach((l, i) => { if(l === sec[i]) { green++; sec[i] = null; g[i] = null; } });
-        g.forEach((l, i) => { if(l && sec.includes(l)) { yellow++; sec[sec.indexOf(l)] = null; } });
-        
-        const row = document.createElement('div');
-        row.className = "flex gap-2 items-center bg-white/5 p-2 rounded mb-1 w-full";
-        row.innerHTML = `<span class="text-[10px] w-12 truncate">${user.username}</span><span class="font-black tracking-widest text-lg">${guess}</span><span class="ml-auto text-green-400 font-bold">${green}G</span><span class="text-yellow-400 font-bold">${yellow}Y</span>`;
+    if (activeGame === 'word500') {
+        if (guess.length !== secretWord.length) return;
+        let green = 0, yellow = 0, secArr = secretWord.split(''), gsArr = guess.split('');
+        gsArr.forEach(l => keyUsed.add(l)); renderKeyboard();
+        for (let i=0; i<secretWord.length; i++) { if (gsArr[i] === secArr[i]) { green++; secArr[i] = null; gsArr[i] = null; } }
+        for (let i=0; i<secretWord.length; i++) { if (gsArr[i] && secArr.includes(gsArr[i])) { yellow++; secArr[secArr.indexOf(gsArr[i])] = null; } }
+        const row = document.createElement('div'); row.className = "w-row";
+        row.innerHTML = `<div class="w-player">${user.username}</div><div class="flex gap-1">${guess.split('').map(l => `<div class="w-letter" style="width:30px; height:35px; font-size:1rem">${l}</div>`).join('')}</div><div class="flex gap-1 ml-2"><div class="w-clue bg-green">${green}</div><div class="w-clue bg-yellow">${yellow}</div></div>`;
         document.getElementById('game-board').prepend(row);
-        if(green === secretWord.length) triggerEndGame(user, guess, 10);
+        if (green === secretWord.length) triggerEndGame(user, guess, 10);
     }
 
-    if(activeGame === 'contexto') {
+    if (activeGame === 'contexto') {
         let rank = contextoData.indexOf(guess);
-        if(rank === -1) rank = 5000;
+        if (rank === -1) rank = 1000 + (Math.floor(Math.random()*5000));
         contextoGuesses.push({ word: guess, rank, user: user.username });
         contextoGuesses.sort((a,b) => a.rank - b.rank);
-        const board = document.getElementById('ctx-board');
-        board.innerHTML = contextoGuesses.slice(0, 8).map(g => `
+        const b = document.getElementById('contexto-board');
+        b.innerHTML = contextoGuesses.slice(0, 10).map(g => `
             <div class="contexto-bar">
-                <div class="contexto-fill" style="width: ${Math.max(5, 100 - (g.rank/10))}% ; background: ${g.rank === 0 ? '#22c55e' : '#eab308'}"></div>
-                <span class="contexto-text">${g.word}</span>
-                <span class="contexto-text">#${g.rank}</span>
+                <div class="contexto-fill" style="width:${Math.max(5, 100 - (g.rank/10))}%; background:${g.rank === 0 ? '#22c55e' : '#eab308'}"></div>
+                <div class="contexto-text-wrap"><span>${g.word}</span><span>#${g.rank}</span></div>
             </div>
         `).join('');
-        if(rank === 0) triggerEndGame(user, guess, 20);
+        if (rank === 0) triggerEndGame(user, guess, 20);
     }
 
-    if(activeGame === 'blossom') {
-        if(guess.length < 4 || !guess.includes(blossomData.center)) return;
-        if(blossomData.found.includes(guess)) return;
-        // Basic valid letter check
-        const allLetters = [blossomData.center, ...blossomData.outer];
-        if(!guess.split('').every(l => allLetters.includes(l))) return;
-        
-        blossomData.found.push(guess);
-        document.getElementById('blossom-found').innerText = `Words Found: ${blossomData.found.length}`;
-        confetti({ particleCount: 20, spread: 50 });
-        updateScore(user, guess.length);
+    if (activeGame === 'blossom') {
+        if (guess.length >= 4 && guess.includes(blossomData.center) && !blossomData.found.includes(guess)) {
+            if (guess.split('').every(l => blossomData.letters.includes(l))) {
+                blossomData.found.push(guess);
+                document.getElementById('blossom-score').innerText = `FOUND: ${blossomData.found.length}`;
+                updateScore(user, guess.length);
+                confetti({ particleCount: 30 });
+            }
+        }
     }
 }
 
-// 5. SYSTEMS & UI
+// 🥇 LEADERBOARD
+function fetchLeaderboard() {
+    const gameType = activeGame === 'word500' ? 'word500' : activeGame === 'contexto' ? 'contexto' : activeGame === 'blossom' ? 'blossom' : 'memory';
+    fetch(`/api/leaderboard?game=${gameType}`).then(r => r.json()).then(data => {
+        const t = document.getElementById('leaderboard-ticker');
+        t.innerHTML = data.map((p, i) => `<div class="ticker-item">#${i+1} <img src="${p.profile_pic}" class="w-5 h-5 rounded-full"> ${p.username}: ${p.score}</div>`).join('');
+    });
+}
+
+// 💡 PROGRESSIVE HINTS
+document.getElementById('btn-hint').addEventListener('click', () => {
+    hintLevel++;
+    if (activeGame === 'contexto') {
+        if (hintLevel === 1) showToast("Broad Category: Object");
+        else if (hintLevel === 2) showToast(`Word Length: ${secretWord.length}`);
+        else if (hintLevel === 3) showToast(`First Letter: ${secretWord[0]}`);
+        else showToast(`Near match: ${contextoData[10]}`);
+    }
+});
+
+// 📥 HOST INPUT SHORTCUT
+document.getElementById('host-test-input').addEventListener('keydown', (e) => {
+    if (e.key === "Enter" || e.key === "ArrowDown") {
+        let val = e.target.value;
+        if(val) processInput(val, {uniqueId:'host', username:'HOST', profilePic:'https://ui-avatars.com/api/?name=H'});
+        e.target.value = "";
+    }
+});
+
+document.getElementById('btn-test-guess').addEventListener('click', () => {
+    let i = document.getElementById('host-test-input');
+    if(i.value) processInput(i.value, {uniqueId:'host', username:'HOST', profilePic:''});
+    i.value = "";
+});
+
+// ℹ️ UI HELPERS
+const INST = {
+    word500: { en: "Guess the hidden word! Keys go dark when used." },
+    contexto: { en: "Find the secret word by its semantic rank!" },
+    memory: { en: "Audience must match pairs by commenting!" },
+    blossom: { en: "Make words using the center letter!" }
+};
+function updateInstructions() { document.getElementById('instruction-text').innerText = INST[activeGame].en; }
+document.getElementById('game-selector').addEventListener('change', e => { activeGame = e.target.value; startNewRound(); });
+document.getElementById('btn-toggle-host').addEventListener('click', () => { document.getElementById('host-menu').classList.toggle('hidden'); document.getElementById('host-menu').classList.toggle('scale-0'); document.getElementById('host-menu').classList.toggle('opacity-0'); });
+document.getElementById('btn-toggle-instructions').addEventListener('click', () => document.getElementById('instruction-panel').classList.toggle('hidden'));
+
+function updateScore(u, p) { 
+    if(u.uniqueId !== 'host') fetch('/api/score', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({uniqueId:u.uniqueId, username:u.username, profilePic:u.profilePic, game:activeGame, points:p})}); 
+}
+
 function triggerEndGame(user, word, pts) {
-    isGameOver = true;
-    updateScore(user, pts);
+    isGameOver = true; updateScore(user, pts);
     const m = document.getElementById('winner-modal');
     document.getElementById('winner-pic').src = user.profilePic;
     document.getElementById('winner-name').innerText = user.username;
     document.getElementById('winning-word').innerText = word;
-    m.classList.remove('hidden'); m.classList.add('flex');
-    gsap.to(m, { opacity: 1, duration: 0.5 });
-    confetti({ particleCount: 200, spread: 100 });
-    setTimeout(() => {
-        gsap.to(m, { opacity: 0, onComplete: () => { m.classList.add('hidden'); startNewRound(); } });
-    }, 5000);
+    m.classList.remove('hidden'); gsap.to(m, { opacity:1, duration:0.5 });
+    confetti({ particleCount: 200 });
+    setTimeout(() => { gsap.to(m, { opacity:0, onComplete: () => { m.classList.add('hidden'); startNewRound(); }}); }, 5000);
 }
 
-function updateScore(u, p) {
-    if(u.uniqueId === 'host') return;
-    fetch('/api/score', { 
-        method: 'POST', 
-        headers: {'Content-Type':'application/json'}, 
-        body: JSON.stringify({ uniqueId: u.uniqueId, username: u.username, profilePic: u.profilePic, game: activeGame, points: p })
-    });
+function showToast(m) {
+    const c = document.getElementById('toast-container');
+    const t = document.createElement('div'); t.className = "toast"; t.innerText = m;
+    c.appendChild(t); setTimeout(() => t.remove(), 4000);
 }
-
-// SOCKET EVENTS
-socket.on('chat', data => processInput(data.comment, data));
-document.getElementById('btn-tt-connect').addEventListener('click', () => {
-    const user = document.getElementById('tt-username').value;
-    if(user) socket.emit('connect_tiktok', user);
-});
-
-// UI HANDLERS
-document.getElementById('btn-toggle-host').addEventListener('click', () => {
-    const m = document.getElementById('host-menu');
-    m.classList.toggle('scale-0'); m.classList.toggle('hidden'); m.classList.toggle('opacity-0');
-});
-document.getElementById('game-selector').addEventListener('change', e => { activeGame = e.target.value; startNewRound(); });
-document.getElementById('btn-test-guess').addEventListener('click', () => {
-    const i = document.getElementById('host-test-input');
-    processInput(i.value, { uniqueId: 'host', username: 'HOST', profilePic: '' });
-    i.value = "";
-});
