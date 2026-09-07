@@ -7,103 +7,116 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="style.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/Draggable.min.js"></script>
     <script src="/socket.io/socket.io.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
 </head>
 <body class="theme-obsidian">
 
-    <!-- TICKER -->
-    <div class="ticker-wrap"><div class="ticker-track" id="leaderboard-ticker"></div></div>
+    <!-- TICKER (Larger) -->
+    <div class="ticker-wrap"><div class="ticker-track" id="leaderboard-ticker"><div class="ticker-item text-yellow-400">WAITING FOR PLAYERS...</div></div></div>
     <div id="sys-mode-badge" class="status-badge status-demo">🟡 PREVIEW MODE</div>
 
-    <!-- HOST PANEL -->
-    <div class="absolute top-14 left-4 z-[100] flex flex-col gap-2">
+    <!-- HOST PANEL (Larger Fonts) -->
+    <div class="absolute top-16 left-4 z-[110] flex flex-col gap-2">
         <div class="flex gap-2">
-            <button id="btn-toggle-host" class="premium-panel text-white text-base font-black px-4 py-3 hover:bg-white/10 uppercase">⚙️ Host Panel</button>
-            <button id="btn-fullscreen" class="premium-panel text-white text-base font-black px-4 py-3 hover:bg-white/10 uppercase">📺 Fullscreen</button>
+            <button id="btn-toggle-host" class="premium-panel text-white text-lg font-black px-5 py-3 hover:bg-white/10 uppercase">⚙️ Host Panel</button>
+            <button id="btn-fullscreen" class="premium-panel text-white text-lg font-black px-5 py-3 hover:bg-white/10 uppercase">📺 Fullscreen</button>
         </div>
         
-        <div id="host-menu" class="premium-panel p-5 flex flex-col gap-4 w-[350px] transition-all duration-300 origin-top-left scale-0 opacity-0 max-h-[80vh] overflow-y-auto hidden-scrollbar hidden">
+        <div id="host-menu" class="premium-panel p-6 flex flex-col gap-5 w-[400px] transition-all duration-300 origin-top-left scale-0 opacity-0 max-h-[80vh] overflow-y-auto hidden-scrollbar">
             <div class="flex border-b border-white/10 bg-black/40 rounded-t-lg overflow-hidden">
-                <button class="flex-1 py-3 text-sm font-black uppercase text-teal-400 border-b-2 border-teal-400 tab-btn" data-target="tab-game">🎮 Game</button>
-                <button class="flex-1 py-3 text-sm font-black uppercase text-gray-500 tab-btn" data-target="tab-sys">⚙️ System</button>
+                <button class="flex-1 py-4 text-base font-black uppercase text-teal-400 border-b-4 border-teal-400 tab-btn" data-target="tab-game">🎮 Game</button>
+                <button class="flex-1 py-4 text-base font-black uppercase text-gray-500 tab-btn" data-target="tab-sys">⚙️ System</button>
             </div>
 
-            <div id="tab-game" class="tab-content flex flex-col gap-3">
-                <label class="text-xs text-gray-400 font-bold uppercase">Theme</label>
-                <select id="theme-selector" class="premium-input text-gray-300"><option value="theme-obsidian">🌙 Obsidian (Gold)</option><option value="theme-ocean">🌊 Ocean (Cyan)</option><option value="theme-forest">🌲 Forest (Lime)</option><option value="theme-crimson">🍷 Crimson (Red)</option><option value="theme-cyber">🌃 Cyberpunk (Neon)</option></select>
+            <div id="tab-game" class="tab-content flex flex-col gap-4">
+                <label class="text-sm text-gray-400 font-bold uppercase">Theme</label>
+                <select id="theme-selector" class="premium-input text-gray-300"><option value="theme-obsidian">🌙 Obsidian</option><option value="theme-ocean">🌊 Ocean</option><option value="theme-forest">🌲 Forest</option><option value="theme-crimson">🍷 Crimson</option><option value="theme-cyber">🌃 Cyberpunk</option></select>
 
-                <label class="text-xs text-gray-400 font-bold uppercase">Game Engine</label>
+                <label class="text-sm text-gray-400 font-bold uppercase">Game Engine</label>
                 <select id="game-selector" class="premium-input">
                     <option value="word500">🟩 Word500</option>
                     <option value="contexto">🎯 Contexto</option>
                     <option value="wordsearch">🔍 Word Search</option>
-                    <option value="memory">🧠 Memory Game</option>
-                    <option value="blossom">🌸 Blossom</option>
+                    <option value="blossom">🌸 Blossom (LexiBloom)</option>
+                    <option value="memory">🎴 Memory (LexiMemory)</option>
                 </select>
 
-                <label class="text-xs text-gray-400 font-bold uppercase">Difficulty</label>
+                <label class="text-sm text-gray-400 font-bold uppercase">Difficulty</label>
                 <select id="diff-selector" class="premium-input text-yellow-400"><option value="easy">Easy</option><option value="moderate" selected>Moderate</option><option value="hard">Hard</option><option value="extreme">Extreme</option></select>
 
                 <div id="length-wrapper" class="flex flex-col gap-1">
-                    <label class="text-xs text-gray-400 font-bold uppercase flex justify-between">Length <span id="length-display" class="text-teal-400 text-base">5</span></label>
-                    <input type="range" id="length-slider" min="4" max="18" value="5" class="w-full accent-teal-500 mt-1">
+                    <label class="text-sm text-gray-400 font-bold uppercase flex justify-between">Length <span id="length-display" class="text-teal-400 text-lg">5</span></label>
+                    <input type="range" id="length-slider" min="4" max="18" value="5" class="w-full accent-teal-500 mt-2">
                 </div>
 
-                <div class="grid grid-cols-2 gap-3 mt-2 border-t border-white/10 pt-3">
+                <div class="grid grid-cols-2 gap-3 mt-3 border-t border-white/10 pt-4">
                     <button id="btn-hint" class="premium-btn bg-yellow-400 text-black text-sm">💡 Hint</button>
                     <button id="btn-skip" class="premium-btn bg-gray-600 text-white text-sm">⏭️ Skip</button>
+                    <button id="btn-reveal" class="premium-btn bg-red-600 text-white text-sm col-span-2">⚠️ Surrender</button>
                 </div>
             </div>
 
-            <div id="tab-sys" class="tab-content hidden flex-col gap-3">
-                <label class="text-xs text-gray-400 font-bold uppercase">Mode</label>
+            <div id="tab-sys" class="tab-content hidden flex-col gap-4">
+                <label class="text-sm text-gray-400 font-bold uppercase">Mode</label>
                 <select id="mode-selector" class="premium-input text-purple-400"><option value="preview" selected>🟡 Preview</option><option value="demo">🟣 Demo Bots</option><option value="live">🟢 Live Connect</option></select>
-                <input type="text" id="tt-username" placeholder="TikTok Username" class="premium-input mt-2">
-                <button id="btn-tt-connect" class="premium-btn bg-teal-500 text-black text-xs">Link TikTok</button>
-                <button id="btn-reset-score" class="premium-btn bg-red-900 text-white text-sm mt-3">🔄 Reset Scores</button>
+                
+                <label class="text-sm text-gray-400 font-bold uppercase mt-2">TikTok Stream Username</label>
+                <div class="flex gap-2">
+                    <input type="text" id="tt-username" placeholder="e.g. moonjiofficial" class="premium-input flex-1">
+                    <button id="btn-tt-connect" class="premium-btn bg-teal-500 text-black text-sm px-4">Link</button>
+                </div>
+
+                <label class="text-sm text-gray-400 font-bold uppercase flex justify-between mt-2">Zoom <span id="zoom-display" class="text-teal-400 text-lg">100%</span></label>
+                <input type="range" id="zoom-slider" min="10" max="500" value="100" class="w-full accent-teal-500">
+
+                <button id="btn-reset-score" class="premium-btn bg-red-900 text-white text-sm mt-4">🔄 Reset Scores</button>
             </div>
         </div>
     </div>
 
     <!-- DRAGGABLE INSTRUCTIONS -->
-    <div id="draggable-rules" class="absolute bottom-28 left-4 z-[90] flex flex-col gap-2 w-80 cursor-move">
-        <button id="btn-toggle-instructions" class="premium-panel text-white text-sm font-bold px-4 py-2 w-max hover:bg-white/10 uppercase">ℹ️ Rules (Drag Me)</button>
-        <div id="instruction-panel" class="premium-panel game-glow p-5 flex flex-col gap-3 transition-all origin-bottom-left">
-            <select id="lang-selector" class="premium-input text-sm p-2 bg-black"><option value="en">🇺🇸 English</option><option value="id">🇮🇩 Indonesia</option><option value="ms">🇲🇾 Melayu</option></select>
-            <p id="instruction-text" class="text-base text-white leading-relaxed mt-1"></p>
+    <div id="instruction-wrapper" class="flex flex-col gap-2 w-80">
+        <button id="btn-toggle-instructions" class="premium-panel text-white text-sm font-bold px-4 py-2 w-max hover:bg-white/10 uppercase cursor-pointer">ℹ️ Game Rules</button>
+        <div id="instruction-panel" class="premium-panel game-glow p-5 flex flex-col gap-3 transition-all origin-top-left">
+            <select id="lang-selector" class="premium-input text-sm p-2 bg-black text-gray-300"><option value="en">🇺🇸 English</option><option value="id">🇮🇩 Indonesia</option><option value="ms">🇲🇾 Melayu</option></select>
+            <p id="instruction-text" class="inst-content text-white mt-1"></p>
         </div>
     </div>
 
-    <!-- MAIN GAME STAGE -->
-    <div class="fixed inset-0 z-10 flex flex-col items-center justify-center pointer-events-none pt-12">
-        <div id="broadcast-stage" class="w-full max-w-5xl flex flex-col items-center transition-transform duration-300 pointer-events-auto h-full justify-center pb-32 px-4">
-            <!-- REDUCED TITLE SIZE -->
-            <h1 class="text-4xl md:text-5xl font-black tracking-widest accent-text uppercase drop-shadow-2xl mb-1 text-center" id="game-title">WORD 500</h1>
-            <p class="text-white text-base tracking-widest mb-6 font-bold bg-black/60 px-6 py-2 rounded-full border border-white/20" id="game-instructions">Initializing...</p>
+    <!-- MAIN GAME STAGE (FLEXIBLE) -->
+    <div class="fixed inset-0 z-10 flex flex-col items-center justify-center pointer-events-none pt-16">
+        <div id="broadcast-stage" class="w-full max-w-6xl flex flex-col items-center transition-transform duration-300 pointer-events-auto h-full justify-center pb-32 px-4">
+            <h1 class="text-6xl md:text-8xl font-black tracking-widest accent-text uppercase drop-shadow-2xl mb-2 text-center" id="game-title">WORD 500</h1>
+            <p class="text-white text-lg tracking-widest mb-6 font-bold bg-black/60 px-6 py-2 rounded-full border border-white/20" id="game-instructions">Initializing Engine...</p>
             
-            <div id="game-board" class="w-full flex-1 premium-panel game-glow p-5 flex flex-col gap-3 overflow-y-auto hidden-scrollbar items-center relative mb-2 max-h-[65vh]"></div>
+            <div id="game-board" class="w-full flex-1 premium-panel game-glow p-5 flex flex-col gap-3 overflow-y-auto hidden-scrollbar items-center relative mb-4"></div>
+            
             <div id="virtual-keyboard" class="keyboard" style="display: none;"></div>
         </div>
     </div>
 
-    <!-- HOST INPUT -->
+    <!-- HOST INPUT (COLLAPSIBLE) -->
     <div class="fixed bottom-0 left-1/2 transform -translate-x-1/2 z-[100] flex flex-col items-center w-11/12 max-w-3xl">
-        <div id="host-input-panel" class="premium-panel w-full px-6 py-5 flex gap-4 items-center border-b-0 rounded-b-none shadow-2xl relative">
-            <input type="text" id="host-test-input" placeholder="Type and press Enter..." class="premium-input flex-1 text-center text-xl tracking-widest uppercase">
-            <button id="btn-test-guess" class="premium-btn text-base px-8 py-3">SEND</button>
+        <button id="btn-toggle-input" class="bg-teal-500 text-black px-8 py-2 rounded-t-xl font-black text-base uppercase cursor-pointer border border-b-0 border-teal-400 z-20 relative">▼ Hide Input</button>
+        <div id="host-input-panel" class="premium-panel w-full px-6 py-5 flex gap-4 items-center border-b-0 rounded-b-none shadow-2xl transition-all duration-300 origin-bottom z-10 relative">
+            <div class="bg-teal-500/20 px-3 py-1 rounded text-teal-400 text-sm font-black uppercase tracking-widest border border-teal-500/30">Host Inject</div>
+            <input type="text" id="host-test-input" placeholder="Type answer to inject..." class="premium-input flex-1 text-center text-xl tracking-widest uppercase">
+            <button id="btn-test-guess" class="premium-btn text-lg px-8 py-3">SEND</button>
         </div>
     </div>
 
-    <div id="toast-container" class="fixed top-28 left-1/2 transform -translate-x-1/2 z-[110] flex flex-col gap-2 pointer-events-none items-center w-full max-w-lg px-4"></div>
+    <div id="toast-container" class="fixed top-28 left-1/2 transform -translate-x-1/2 z-[110] flex flex-col gap-2 pointer-events-none items-center w-full max-w-2xl px-4"></div>
 
     <!-- WINNER MODAL -->
     <div id="winner-modal" class="fixed inset-0 z-[120] bg-black/95 backdrop-blur-xl hidden flex-col items-center justify-center opacity-0 px-6 text-center">
-        <img id="winner-pic" src="" class="w-40 h-40 rounded-full border-4 border-green-500 shadow-[0_0_50px_rgba(34,197,94,0.6)] mb-6 object-cover">
-        <h2 class="text-4xl font-black text-green-400 uppercase tracking-widest" id="winner-name">USERNAME</h2>
-        <h1 class="text-8xl md:text-9xl font-black text-white uppercase tracking-widest mt-4" id="winning-word">WORD</h1>
-        <p id="word-def" class="text-white text-xl leading-relaxed mt-10"></p>
+        <img id="winner-pic" src="" class="w-48 h-48 rounded-full border-4 border-green-500 shadow-[0_0_60px_rgba(34,197,94,0.6)] mb-6 object-cover">
+        <h2 class="text-5xl font-black text-green-400 uppercase tracking-widest" id="winner-name">USERNAME</h2>
+        <h1 class="text-8xl md:text-9xl font-black text-white uppercase tracking-widest mt-4 drop-shadow-2xl" id="winning-word">WORD</h1>
+        <div class="mt-10 premium-panel p-8 w-full max-w-3xl text-left border-white/20">
+            <h3 class="text-yellow-400 font-black text-lg uppercase tracking-widest border-b border-white/10 pb-3 mb-4">📖 Dictionary Definition</h3>
+            <p id="word-def" class="text-white text-2xl leading-relaxed mb-4">Loading lexicon...</p>
+        </div>
     </div>
 
     <script src="main.js"></script>
