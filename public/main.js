@@ -1,13 +1,17 @@
 const socket = io();
 
-// --- ⚙️ STATE ---
+// --- 🐛 SYSTEM LOGGER ---
+const sysLogs = [];
+function logError(err, fix) { sysLogs.unshift(`[${new Date().toLocaleTimeString()}] ERROR: ${err} | FIX: ${fix}`); if(sysLogs.length > 50) sysLogs.pop(); }
+window.onerror = (msg) => logError(msg, "Check syntax or variables.");
+
+// --- ⚙️ MASTER STATE ---
 let activeGame = 'word500', difficulty = 'moderate', wordLength = 5, sysMode = 'preview'; 
 let dictAll = {}, dictCommon = {}; 
 let contextoData = [], contextoGuesses = [], bestContextoRank = 1000;
 let wordSearchData = { grid: [], words: [], size: 0 };
 let blossomData = { center: '', outers: [], found: [], targets: [] };
 let memoryData = { cards: [], flipped: [], matched: 0, lock: false };
-let gridData = { board: [], solution: [], type: '', size: 0 }; 
 let geoData = { target: null, type: '' }; 
 
 let playerColors = ["#ef4444", "#3b82f6", "#a855f7", "#f97316", "#ec4899", "#14b8a6", "#fde047"];
@@ -17,7 +21,7 @@ const board = document.getElementById('game-board');
 const vKeyboard = document.getElementById('virtual-keyboard');
 const instBar = document.getElementById('game-instructions');
 
-// --- 📖 DATABASES ---
+// --- 📖 DATABASES & INSTRUCTIONS ---
 const COUNTRIES = [{ name: "UNITED STATES", cap: "WASHINGTON", lat: 37.09, lon: -95.71, iso: "us" }, { name: "CANADA", cap: "OTTAWA", lat: 56.13, lon: -106.34, iso: "ca" }, { name: "BRAZIL", cap: "BRASILIA", lat: -14.23, lon: -51.92, iso: "br" }, { name: "FRANCE", cap: "PARIS", lat: 46.22, lon: 2.21, iso: "fr" }, { name: "JAPAN", cap: "TOKYO", lat: 36.20, lon: 138.25, iso: "jp" }, { name: "AUSTRALIA", cap: "CANBERRA", lat: -25.27, lon: 133.77, iso: "au" }, { name: "INDONESIA", cap: "JAKARTA", lat: -0.78, lon: 113.92, iso: "id" }, { name: "MALAYSIA", cap: "KUALA LUMPUR", lat: 4.21, lon: 101.97, iso: "my" }, { name: "EGYPT", cap: "CAIRO", lat: 26.82, lon: 30.80, iso: "eg" }, { name: "SPAIN", cap: "MADRID", lat: 40.46, lon: -3.74, iso: "es" }];
 const ANIMALS = [{ name: "LION", class: "Mammal", diet: "Carnivore", habitat: "Savanna" }, { name: "EAGLE", class: "Bird", diet: "Carnivore", habitat: "Mountains" }, { name: "FROG", class: "Amphibian", diet: "Carnivore", habitat: "Swamp" }, { name: "SHARK", class: "Fish", diet: "Carnivore", habitat: "Ocean" }, { name: "HORSE", class: "Mammal", diet: "Herbivore", habitat: "Plains" }];
 const INST = {
@@ -26,8 +30,6 @@ const INST = {
     wordsearch: { en: "<b>WORD SEARCH:</b> Find the hidden words in the grid! Type the word." },
     blossom: { en: "<b>BLOSSOM:</b> Make words using 7 letters. MUST use center letter! Letters can be reused." },
     memory: { en: "<b>MEMORY:</b> Match pairs! Type two numbers in chat (e.g. '3 7')." },
-    duckdoku: { en: "<b>DUCKDOKU:</b> Sudoku with Ducks! Type coords and emoji (e.g. 'A1 🦆')." },
-    meowdoku: { en: "<b>MEOWDOKU:</b> Sudoku with Cats! Type coords (e.g. 'C3 😻')." },
     worldle: { en: "<b>WORLDLE:</b> Guess the country by shape. Get distance hints!" },
     globle: { en: "<b>GLOBLE:</b> Guess any country. Hotter colors = closer to target!" },
     capitale: { en: "<b>CAPITALE:</b> Guess the Capital City!" },
@@ -37,14 +39,16 @@ function updateInstructions() { instBar.innerHTML = INST[activeGame]?.en || "Rul
 
 // --- 🚀 INSTANT BOOT & BACKGROUND DICT LOADING ---
 async function bootSystem() {
+    document.getElementById('loading-dict').style.display = 'none';
     try {
+        // 1. FAST BOOT (10k Words)
         const res = await fetch('https://raw.githubusercontent.com/first20hours/google-10000-english/master/google-10000-english-no-swears.txt');
         const text = await res.text();
         text.split(/\r?\n/).forEach(w => { const c = w.trim().toUpperCase(); if(c) { if(!dictCommon[c.length]) dictCommon[c.length]=[]; dictCommon[c.length].push(c); } });
         dictAll = JSON.parse(JSON.stringify(dictCommon)); 
-        document.getElementById('loading-dict').style.display = 'none';
-        startNewRound(); // Boots instantly
+        startNewRound(); 
 
+        // 2. BACKGROUND LOAD (370k Words, No Freezing)
         const rA = await fetch('https://raw.githubusercontent.com/dwyl/english-words/master/words_alpha.txt');
         const textAll = await rA.text();
         const lines = textAll.split(/\r?\n/);
@@ -57,10 +61,11 @@ async function bootSystem() {
                 if(c) { if(!dictAll[c.length]) dictAll[c.length]=[]; dictAll[c.length].push(c); }
             }
             if (currentIndex < lines.length) requestAnimationFrame(processChunk);
-            else console.log("✅ 370k Extended Lexicon loaded seamlessly.");
+            else console.log("✅ Extended Lexicon Loaded.");
         }
         requestAnimationFrame(processChunk);
-    } catch (err) { console.error("Dictionary Fetch failed."); startNewRound(); }
+
+    } catch (err) { logError(err, "Network fetch failed."); startNewRound(); }
 }
 bootSystem();
 
@@ -71,25 +76,7 @@ function prefetchDef(word) {
     fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${word.toLowerCase()}`).then(res => res.json()).then(data => { preloadedDef = data[0].meanings[0].definitions[0].definition; }).catch(e=>{});
 }
 
-// --- UI Toggles & Draggables ---
-function makeDraggable(wrapId, handleId) {
-    const wrap = document.getElementById(wrapId); const handle = document.getElementById(handleId);
-    let isDragging = false, offX, offY;
-    handle.addEventListener('mousedown', e => { isDragging=true; offX=e.clientX-wrap.offsetLeft; offY=e.clientY-wrap.offsetTop; });
-    document.addEventListener('mousemove', e => { if(isDragging) { wrap.style.left=(e.clientX-offX)+'px'; wrap.style.top=(e.clientY-offY)+'px'; wrap.style.bottom='auto'; wrap.style.right='auto'; } });
-    document.addEventListener('mouseup', () => isDragging=false);
-}
-makeDraggable('instruction-wrapper', 'inst-drag'); makeDraggable('chat-wrapper', 'chat-drag');
-
-document.getElementById('btn-toggle-instructions').addEventListener('click', () => document.getElementById('instruction-panel').classList.toggle('scale-y-0'));
-document.getElementById('btn-toggle-chat').addEventListener('click', () => document.getElementById('chat-panel').classList.toggle('scale-y-0'));
-document.getElementById('btn-toggle-host').addEventListener('click', () => document.getElementById('host-menu').classList.toggle('scale-0'));
-document.getElementById('btn-toggle-input').addEventListener('click', e => { 
-    let p = document.getElementById('host-input-panel'); 
-    p.classList.contains('scale-y-0') ? (p.classList.remove('scale-y-0','h-0','p-0','border-0', 'opacity-0'), e.target.innerText="▼ Hide Input") : (p.classList.add('scale-y-0','h-0','p-0','border-0', 'opacity-0'), e.target.innerText="▲ Show Input"); 
-});
-
-// --- ⌨️ KEYBOARD ---
+// --- ⌨️ VIRTUAL KEYBOARD ---
 function renderKeyboard() {
     if(activeGame !== 'word500') { vKeyboard.style.display = 'none'; return; }
     vKeyboard.style.display = 'flex';
@@ -106,60 +93,63 @@ window.cycleKeyColor = function(l) {
     renderKeyboard();
 }
 
-// --- 🎮 ROUTERS ---
+// --- 🎮 MASTER ROUTER ---
 function startNewRound() {
     isGameOver = false; board.innerHTML = ""; keyState = {}; updateInstructions(); fetchLeaderboard();
+    
     if(activeGame === 'word500') setupWord500(); 
     else if(activeGame === 'contexto') setupContexto(); 
     else if(activeGame === 'wordsearch') setupWordSearch();
     else if(activeGame === 'blossom') setupBlossom();
     else if(activeGame === 'memory') setupMemory();
-    else if(['duckdoku','meowdoku'].includes(activeGame)) setupGridGame(activeGame);
     else if(['worldle','globle','capitale'].includes(activeGame)) setupGeoGame(activeGame);
     else if(activeGame === 'animadle') setupAnimadle();
 }
 
-// 🟩 WORD 500
+// 🟩 1. WORD 500
 function setupWord500() {
-    let list = getValidTargets((difficulty === 'easy' || difficulty === 'moderate') ? dictCommon[wordLength] : dictAll[wordLength]);
-    if(!list || list.length===0) list = dictAll[wordLength] || ["ERROR"];
+    document.getElementById('game-title').innerText = "WORD 500";
+    let len = parseInt(document.getElementById('length-slider').value) || 5;
+    let list = getValidTargets((difficulty === 'easy' || difficulty === 'moderate') ? dictCommon[len] : dictAll[len]);
+    if(!list || list.length===0) list = dictAll[len];
     secretWord = list[Math.floor(Math.random() * list.length)];
     prefetchDef(secretWord); renderKeyboard();
-    board.innerHTML = `<div class="text-gray-400 font-bold mt-4 tracking-widest uppercase">System Ready.</div>`;
 }
-
 function handleWord500Guess(guess, user) {
-    if (guess.length !== wordLength || (!dictAll[wordLength].includes(guess) && !dictCommon[wordLength].includes(guess))) return;
+    let len = parseInt(document.getElementById('length-slider').value) || 5;
+    if (guess.length !== len || (!dictAll[len]?.includes(guess) && !dictCommon[len]?.includes(guess))) return;
     
     let green = 0, yellow = 0, secArr = secretWord.split(''), gsArr = guess.split('');
-    for (let i=0; i<wordLength; i++) { if (gsArr[i] === secArr[i]) { green++; secArr[i] = null; gsArr[i] = null; } }
-    for (let i=0; i<wordLength; i++) { if (gsArr[i] !== null) { let idx = secArr.indexOf(gsArr[i]); if (idx !== -1) { yellow++; secArr[idx] = null; } } }
+    for (let i=0; i<len; i++) { if (gsArr[i] === secArr[i]) { green++; secArr[i] = null; gsArr[i] = null; } }
+    for (let i=0; i<len; i++) { if (gsArr[i] !== null) { let idx = secArr.indexOf(gsArr[i]); if (idx !== -1) { yellow++; secArr[idx] = null; } } }
     
     if(green === 0 && yellow === 0) guess.split('').forEach(l => { if(!keyState[l]) keyState[l] = 'used'; }); 
     renderKeyboard();
     
     let row = document.createElement('div'); row.className = "w-row";
-    row.innerHTML = `<div class="w-player">${user.username}</div><div class="w-letters">${guess.split('').map(l => `<div class="w-letter">${l}</div>`).join('')}</div><div class="w-clues"><div class="w-clue bg-green">${green}</div><div class="w-clue bg-yellow">${yellow}</div><div class="w-clue bg-red">${wordLength-green-yellow}</div></div>`;
+    row.innerHTML = `<div class="w-player">${user.username}</div><div class="w-letters">${guess.split('').map(l => `<div class="w-letter">${l}</div>`).join('')}</div><div class="w-clues"><div class="w-clue bg-green">${green}</div><div class="w-clue bg-yellow">${yellow}</div><div class="w-clue bg-red">${len-green-yellow}</div></div>`;
     board.prepend(row);
-    if(board.children.length > Math.max(6, 20-wordLength)) board.removeChild(board.lastChild);
-    if (green === wordLength) triggerEndGame(user, guess, 1);
+    if(board.children.length > Math.max(6, 20-len)) board.removeChild(board.lastChild);
+    if (green === len) triggerEndGame(user, guess, 1);
 }
 
-// 🎯 CONTEXTO
+// 🎯 2. CONTEXTO
 async function setupContexto() {
     vKeyboard.style.display = 'none'; contextoGuesses = []; bestContextoRank = 1000;
-    board.innerHTML = `<div class="text-yellow-400 animate-pulse mt-10 font-bold tracking-widest text-xl">🧠 AI Building Semantic Tree...</div>`;
+    document.getElementById('game-title').innerText = "CONTEXTO";
+    board.innerHTML = `<div class="text-yellow-400 animate-pulse mt-10 font-bold tracking-widest text-xl text-center w-full">🧠 AI Building Semantic Tree...</div>`;
+    
     let len = (difficulty === 'hard' || difficulty === 'extreme') ? Math.floor(Math.random() * 3) + 7 : Math.floor(Math.random() * 3) + 4;
     let list = getValidTargets(dictCommon[len]); secretWord = list[Math.floor(Math.random() * list.length)]; prefetchDef(secretWord);
+    
     try {
         const res = await fetch(`https://api.datamuse.com/words?ml=${secretWord}&max=1000`);
         contextoData = (await res.json()).map(i => i.word.toUpperCase()); contextoData.unshift(secretWord);
         board.innerHTML = `<div class="contexto-list" id="contexto-board"></div>`;
     } catch (err) { activeGame = 'word500'; startNewRound(); }
 }
-
 function handleContextoGuess(guess, user) {
-    if(!dictAll[guess.length]?.includes(guess) && !dictCommon[guess.length]?.includes(guess)) { showToast("⚠️ Not a valid dictionary word!"); return; }
+    if(!dictAll[guess.length]?.includes(guess) && !dictCommon[guess.length]?.includes(guess)) { showToast("⚠️ Not a dictionary word!"); return; }
     if(contextoGuesses.some(g => g.word === guess)) { showToast("⚠️ Already guessed!"); return; }
 
     let rank = contextoData.indexOf(guess);
@@ -179,18 +169,20 @@ function handleContextoGuess(guess, user) {
     if (rank === 0) triggerEndGame(user, guess, 2); else if (rank <= 10) updateScore(user, 1);
 }
 
-// 🔍 WORD SEARCH
+// 🔍 3. WORD SEARCH
 function setupWordSearch() {
     vKeyboard.style.display = 'none'; colorIdx = 0;
-    let size = difficulty === 'easy' ? 10 : difficulty === 'moderate' ? 12 : difficulty === 'hard' ? 15 : 18;
-    let count = difficulty === 'easy' ? 15 : difficulty === 'moderate' ? 20 : difficulty === 'hard' ? 25 : 30;
+    document.getElementById('game-title').innerText = "WORD SEARCH";
+    let diff = document.getElementById('diff-selector').value;
+    let size = diff === 'easy' ? 10 : diff === 'moderate' ? 12 : diff === 'hard' ? 15 : 18;
+    let count = diff === 'easy' ? 15 : diff === 'moderate' ? 20 : diff === 'hard' ? 25 : 30;
 
     let valid = getValidTargets(dictCommon[4].concat(dictCommon[5], dictCommon[6]).filter(w => w.length <= size - 2));
     let chosen = []; for(let i=0; i<count; i++) chosen.push(valid[Math.floor(Math.random() * valid.length)]);
 
     let grid = Array(size).fill(null).map(() => Array(size).fill(''));
     let placedInfo = [];
-    let dirs = [[0,1,"Horizontal"], [1,0,"Vertical"]]; if(difficulty !== 'easy') dirs.push([1,1,"Diagonal"]);
+    let dirs = [[0,1,"Horizontal"], [1,0,"Vertical"]]; if(diff !== 'easy') dirs.push([1,1,"Diagonal"]);
 
     chosen.forEach(word => {
         let placed = false, tries = 0;
@@ -219,7 +211,6 @@ function setupWordSearch() {
     placedInfo.forEach(w => html += `<div class="ws-clue-item" id="wsc-${w.word}"><span class="ws-clue-text">${w.len} Letters</span><div class="flex items-center gap-2 hidden" id="ws-finder-${w.word}"></div></div>`);
     board.innerHTML = html + `</div>`;
 }
-
 function handleWordSearchGuess(guess, user) {
     let target = wordSearchData.words.find(w => w.word === guess);
     if(target) {
@@ -242,9 +233,9 @@ function handleWordSearchGuess(guess, user) {
     }
 }
 
-// 🌸 BLOSSOM
+// 🌸 4. BLOSSOM
 function setupBlossom() {
-    vKeyboard.style.display = 'none'; 
+    vKeyboard.style.display = 'none'; document.getElementById('game-title').innerText = "BLOSSOM";
     const pangrams = ["ABOLISH", "CABINET", "ECLIPSE", "GLACIER", "JOURNEY", "KINETIC", "LOBSTER", "MACHINE", "PELICAN", "QUANTUM", "RAVIOLI", "SOCIETY", "VAMPIRE", "WHISKEY", "YOGURTS", "ZEALOUS"];
     let pan = pangrams[Math.floor(Math.random() * pangrams.length)].split('');
     let center = pan[Math.floor(Math.random() * 7)]; let outers = pan.filter(l => l !== center);
@@ -269,7 +260,6 @@ function setupBlossom() {
     html += `</div><div class="text-yellow-400 font-black text-2xl mt-6 text-center w-full">FOUND: <span id="blossom-count">0</span> / ${targets.length}</div><div class="flex flex-wrap gap-2 mt-4 w-full justify-center max-w-4xl" id="blossom-found-list"></div>`;
     board.innerHTML = html;
 }
-
 function handleBlossomGuess(guess, user) {
     if(blossomData.targets.includes(guess) && !blossomData.found.includes(guess)) {
         blossomData.found.push(guess); document.getElementById('blossom-count').innerText = blossomData.found.length;
@@ -285,10 +275,11 @@ function handleBlossomGuess(guess, user) {
     }
 }
 
-// 🎴 MEMORY
+// 🎴 5. MEMORY
 function setupMemory() {
-    vKeyboard.style.display = 'none';
-    let pairs = difficulty === 'easy' ? 4 : difficulty === 'moderate' ? 6 : difficulty === 'hard' ? 10 : 15;
+    vKeyboard.style.display = 'none'; document.getElementById('game-title').innerText = "MEMORY";
+    let diff = document.getElementById('diff-selector').value;
+    let pairs = diff === 'easy' ? 4 : diff === 'moderate' ? 6 : diff === 'hard' ? 10 : 15;
     const emojis = ["🍎","🚗","🐶","⚽","🎸","🚀","💎","🔥","🍕","🧩","👻","🦄","🥑","🎧","🏆","🦖"];
     let deck = []; for(let i=0; i<pairs; i++) { deck.push(emojis[i]); deck.push(emojis[i]); }
     deck.sort(() => Math.random() - 0.5); 
@@ -299,7 +290,6 @@ function setupMemory() {
     deck.forEach((c, i) => { html += `<div class="memory-card" id="mem-${i}"><span>${i+1}</span><span class="hidden">${c}</span></div>`; });
     board.innerHTML = html + `</div>`;
 }
-
 function handleMemoryGuess(guess, user) {
     if(memoryData.lock) return; const match = guess.match(/^(\d+)\s+(\d+)$/); if(!match) return;
     let i1 = parseInt(match[1]) - 1, i2 = parseInt(match[2]) - 1;
@@ -326,61 +316,22 @@ function handleMemoryGuess(guess, user) {
     }, 2000);
 }
 
-// 🧩 ALGEBRAIC GRIDS (Duckdoku, Meowdoku)
-function setupGridGame(type) {
-    vKeyboard.style.display = 'none';
-    let size = 4; let elements = type === 'duckdoku' ? ["🦆","🦢","🦉","🐧"] : ["😺","😻","🙀","😾"];
-    gridData = { type, size, board: Array(size).fill().map(()=>Array(size).fill('')), solution: Array(size).fill().map(()=>Array(size).fill('')) };
-    
-    for(let r=0; r<size; r++) for(let c=0; c<size; c++) {
-        gridData.solution[r][c] = elements[(r+c)%size];
-        gridData.board[r][c] = Math.random()>0.4 ? gridData.solution[r][c] : ''; 
-    }
-    renderAlgebraicGrid();
-}
-function renderAlgebraicGrid() {
-    let cols = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-    let html = `<div class="alg-grid-wrapper"><div class="alg-row"><div class="alg-cell alg-label"></div>`;
-    for(let c=0; c<gridData.size; c++) html += `<div class="alg-cell alg-label">${cols[c]}</div>`;
-    html += `</div>`;
-    for(let r=0; r<gridData.size; r++) {
-        html += `<div class="alg-row"><div class="alg-cell alg-label">${r+1}</div>`;
-        for(let c=0; c<gridData.size; c++) {
-            let val = gridData.board[r][c];
-            html += `<div class="alg-cell ${val !== '' ? 'text-white' : ''}" id="alg-${r}-${c}">${val}</div>`;
-        }
-        html += `</div>`;
-    }
-    board.innerHTML = html + `</div>`;
-}
-function handleGridGuess(guess, user) {
-    const match = guess.match(/^([A-Z])(\d+)\s+(.+)$/);
-    if(match) {
-        let c = match[1].charCodeAt(0) - 65, r = parseInt(match[2]) - 1, val = match[3];
-        if(r >= 0 && r < gridData.size && c >= 0 && c < gridData.size && gridData.solution[r][c] === val) {
-            gridData.board[r][c] = val; renderAlgebraicGrid(); showToast(`✅ ${user.username} solved ${match[1]}${match[2]}!`); confetti({ particleCount: 30 });
-            updateScore(user, 1);
-        }
-    }
-}
-
-// 🌍 GEO GAMES (Worldle, Globle, Capitale, Animadle)
+// 🌍 6-9. GEO GAMES
 function setupGeoGame(type) {
-    vKeyboard.style.display = 'none';
+    vKeyboard.style.display = 'none'; document.getElementById('game-title').innerText = type.toUpperCase();
     let t; do { t = COUNTRIES[Math.floor(Math.random() * COUNTRIES.length)]; } while (geoData.target && t.name === geoData.target.name);
     geoData = { type, target: t }; secretWord = type === 'capitale' ? t.cap : t.name; prefetchDef(secretWord);
 
     if(type === 'worldle') {
         board.innerHTML = `<img src="https://raw.githubusercontent.com/djaiss/mapsicon/master/all/${t.iso}/vector.svg" class="worldle-img" onerror="this.style.display='none'">
         <div id="geo-list" class="w-full max-w-xl mt-4 flex flex-col gap-2"></div>`;
-    } else {
-        board.innerHTML = `<div id="geo-list" class="w-full max-w-xl mt-4 flex flex-col gap-2"></div>`;
-    }
+    } else { board.innerHTML = `<div id="geo-list" class="w-full max-w-xl mt-4 flex flex-col gap-2"></div>`; }
 }
 function handleGeoGuess(guess, user) {
     let country = COUNTRIES.find(c => c.name === guess || c.cap === guess);
-    if(!country) { showToast(`⚠️ @${user.username}, '${guess}' is not a recognized geography target.`); return; }
+    if(!country) { showToast(`⚠️ @${user.username}, '${guess}' is not in the database.`); return; }
     
+    // Haversine Distance Match
     const R = 6371; const dLat = (country.lat - geoData.target.lat)*Math.PI/180; const dLon = (country.lon - geoData.target.lon)*Math.PI/180;
     const a = Math.sin(dLat/2)*Math.sin(dLat/2) + Math.cos(geoData.target.lat*Math.PI/180)*Math.cos(country.lat*Math.PI/180)*Math.sin(dLon/2)*Math.sin(dLon/2);
     let dist = Math.round(R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)));
@@ -404,9 +355,7 @@ function handleAnimadleGuess(guess, user) {
     let anim = ANIMALS.find(a => a.name === guess);
     if(!anim) { showToast(`⚠️ Not in Animal DB.`); return; }
     let t = geoData.target;
-    let c1 = anim.class === t.class ? 'text-green-400' : 'text-red-400';
-    let c2 = anim.diet === t.diet ? 'text-green-400' : 'text-red-400';
-    let c3 = anim.habitat === t.habitat ? 'text-green-400' : 'text-red-400';
+    let c1 = anim.class === t.class ? 'text-green-400' : 'text-red-400'; let c2 = anim.diet === t.diet ? 'text-green-400' : 'text-red-400'; let c3 = anim.habitat === t.habitat ? 'text-green-400' : 'text-red-400';
     let row = document.createElement('div'); row.className = "geo-row";
     row.innerHTML = `<span class="truncate w-1/4">${guess}</span> <span class="${c1} w-24 text-center">${anim.class}</span> <span class="${c2} w-24 text-center">${anim.diet}</span> <span class="${c3} w-24 text-center">${anim.habitat}</span>`;
     document.getElementById('geo-list').prepend(row);
@@ -414,6 +363,23 @@ function handleAnimadleGuess(guess, user) {
 }
 
 // --- 🤖 BOTS & INPUT PIPELINE ---
+function makeDraggable(wrapId, handleId) {
+    const wrap = document.getElementById(wrapId); const handle = document.getElementById(handleId);
+    let isDragging = false, offX, offY;
+    handle.addEventListener('mousedown', e => { isDragging=true; offX=e.clientX-wrap.offsetLeft; offY=e.clientY-wrap.offsetTop; });
+    document.addEventListener('mousemove', e => { if(isDragging) { wrap.style.left=(e.clientX-offX)+'px'; wrap.style.top=(e.clientY-offY)+'px'; wrap.style.bottom='auto'; wrap.style.right='auto'; } });
+    document.addEventListener('mouseup', () => isDragging=false);
+}
+makeDraggable('instruction-wrapper', 'inst-drag'); makeDraggable('chat-wrapper', 'chat-drag');
+
+document.getElementById('btn-toggle-instructions').addEventListener('click', () => document.getElementById('instruction-panel').classList.toggle('scale-y-0'));
+document.getElementById('btn-toggle-chat').addEventListener('click', () => document.getElementById('chat-panel').classList.toggle('scale-y-0'));
+document.getElementById('btn-toggle-host').addEventListener('click', () => document.getElementById('host-menu').classList.toggle('scale-0'));
+document.getElementById('btn-toggle-input').addEventListener('click', e => { 
+    let p = document.getElementById('host-input-panel'); 
+    p.classList.contains('scale-y-0') ? (p.classList.remove('scale-y-0','h-0','p-0','border-0', 'opacity-0'), e.target.innerText="▼ Hide Input") : (p.classList.add('scale-y-0','h-0','p-0','border-0', 'opacity-0'), e.target.innerText="▲ Show Input"); 
+});
+
 socket.on('sys_status', status => {
     if(sysMode !== 'demo') {
         let isDemoMode = status === 'DEMO'; sysMode = isDemoMode ? 'preview' : 'live';
@@ -421,14 +387,7 @@ socket.on('sys_status', status => {
         b.className = `status-badge ${isDemoMode ? 'status-preview' : 'status-live'}`; b.innerText = isDemoMode ? '🟡 PREVIEW' : '🟢 LIVE';
     }
 });
-socket.on('chat', data => { if(sysMode === 'live') { appendChat(data); processInput(data.comment, data); }});
-
-function appendChat(data) {
-    const chatBox = document.getElementById('live-chat'); if(!data.comment) return;
-    const li = document.createElement('li'); li.className = 'flex items-start gap-2 bg-white/5 p-2 rounded-lg border-l-2 border-teal-400';
-    li.innerHTML = `<img src="${data.profilePic}" class="w-6 h-6 rounded-full"><div class="text-[10px]"><span class="font-bold text-gray-300">${data.username}</span><p class="text-white">${data.comment}</p></div>`;
-    chatBox.appendChild(li); if (chatBox.children.length > 25) chatBox.removeChild(chatBox.firstChild);
-}
+socket.on('chat', data => { if(sysMode === 'live') processInput(data.comment, data); });
 
 setInterval(() => {
     if(sysMode === 'demo' && !isGameOver) {
@@ -442,12 +401,12 @@ setInterval(() => {
         else if(['worldle','globle','capitale'].includes(activeGame)) { g = intel>0.9?secretWord:COUNTRIES[Math.floor(Math.random()*COUNTRIES.length)].name; }
         else if(activeGame==='animadle') g = intel>0.9?secretWord:ANIMALS[Math.floor(Math.random()*ANIMALS.length)].name;
         
-        if(g) { appendChat({username:fake.username, comment:g, profilePic:fake.profilePic}); processInput(g, fake); }
+        if(g) processInput(g, fake);
     }
-}, 3500);
+}, 3000);
 
 document.getElementById('host-test-input').addEventListener('keydown', (e) => { 
-    if(e.key === 'Enter' || e.key === 'ArrowDown') { let i = e.target; if(i.value) { appendChat({username:'HOST', comment:i.value, profilePic: "https://ui-avatars.com/api/?name=H"}); processInput(i.value, {uniqueId: 'host', username: 'HOST', profilePic: 'https://ui-avatars.com/api/?name=H'}); } i.value = ""; }
+    if(e.key === 'Enter' || e.key === 'ArrowDown') { let i = e.target; if(i.value) processInput(i.value, {uniqueId: 'host', username: 'HOST', profilePic: 'https://ui-avatars.com/api/?name=H'}); i.value = ""; }
 });
 document.getElementById('btn-test-guess').addEventListener('click', () => { let i = document.getElementById('host-test-input'); if(i.value) processInput(i.value, {uniqueId: 'host', username: 'HOST', profilePic: 'https://ui-avatars.com/api/?name=H'}); i.value = ""; });
 
@@ -455,10 +414,8 @@ function processInput(guess, user) {
     if (isGameOver) return; guess = guess.trim().toUpperCase();
     if(board.children[0] && board.children[0].innerText.includes("System")) board.innerHTML = "";
 
-    if(['duckdoku','meowdoku'].includes(activeGame)) handleGridGuess(guess, user);
-    else if(['worldle','globle','capitale'].includes(activeGame)) handleGeoGuess(guess, user);
+    if(['worldle','globle','capitale'].includes(activeGame)) handleGeoGuess(guess, user);
     else if(activeGame === 'animadle') handleAnimadleGuess(guess, user);
-    else if(activeGame === 'redactle') handleRedactleGuess(guess, user);
     else if (activeGame === 'memory') handleMemoryGuess(guess, user);
     else if (!/^[A-Z]+$/.test(guess)) return; 
     else if (activeGame === 'word500') handleWord500Guess(guess, user); 
