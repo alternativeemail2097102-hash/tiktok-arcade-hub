@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Arcade Hub Broadcast V14</title>
+    <title>Arcade Hub Broadcast V15</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="style.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
@@ -14,7 +14,8 @@
 
     <!-- TICKER -->
     <div class="ticker-wrap"><div class="ticker-track" id="leaderboard-ticker"><div class="ticker-item text-yellow-400">WAITING FOR PLAYERS...</div></div></div>
-    <div id="sys-mode-badge" class="status-badge status-preview">🟡 PREVIEW MODE</div>
+    
+    <div id="sys-mode-badge" class="status-badge status-demo">🟡 PREVIEW MODE</div>
 
     <!-- HOST PANEL -->
     <div class="absolute top-[60px] left-4 z-[110] flex flex-col gap-2">
@@ -32,19 +33,15 @@
             <div class="p-6 flex flex-col gap-4">
                 <div id="tab-game" class="tab-content flex flex-col gap-4">
                     <label class="text-sm text-gray-400 font-bold uppercase">Game Engine</label>
-                    <select id="game-selector" class="premium-input">
-                        <optgroup label="Word & Logic">
+                    <select id="game-selector" class="premium-input text-white">
+                        <optgroup label="Core Games">
                             <option value="word500">🟩 Word500</option>
                             <option value="contexto">🎯 Contexto</option>
                             <option value="wordsearch">🔍 Word Search</option>
-                            <option value="blossom">🌹 Blossom (LexiBloom)</option>
-                        </optgroup>
-                        <optgroup label="Grid & Memory">
+                            <option value="blossom">🌹 Blossom</option>
                             <option value="memory">🎴 Memory</option>
-                            <option value="duckdoku">🦆 Duckdoku</option>
-                            <option value="meowdoku">🐱 Meowdoku</option>
                         </optgroup>
-                        <optgroup label="Geography & Nature">
+                        <optgroup label="Geographic & Deductive">
                             <option value="worldle">🌍 Worldle</option>
                             <option value="globle">🌡️ Globle</option>
                             <option value="capitale">🏛️ Capitale</option>
@@ -84,7 +81,7 @@
     </div>
 
     <!-- DRAGGABLE INSTRUCTIONS -->
-    <div id="instruction-wrapper" class="absolute z-[90] flex flex-col w-80" style="bottom: 120px; left: 16px;">
+    <div id="instruction-wrapper" class="drag-wrapper w-80" style="bottom: 120px; left: 16px;">
         <div class="drag-handle" id="inst-drag">DRAG TO MOVE</div>
         <button id="btn-toggle-instructions" class="premium-panel text-white text-sm font-bold px-4 py-3 uppercase rounded-t-none border-t-0 hover:bg-white/10 cursor-pointer w-full text-center">ℹ️ Game Rules</button>
         <div id="instruction-panel" class="premium-panel game-glow mt-1 transition-all origin-top overflow-hidden">
@@ -96,7 +93,7 @@
     </div>
 
     <!-- DRAGGABLE CHAT -->
-    <div id="chat-wrapper" class="absolute z-[90] flex flex-col w-80" style="top: 130px; right: 16px;">
+    <div id="chat-wrapper" class="drag-wrapper w-80" style="top: 130px; right: 16px;">
         <div class="drag-handle" id="chat-drag">DRAG TO MOVE</div>
         <button id="btn-toggle-chat" class="premium-panel text-white text-sm font-bold px-4 py-3 uppercase rounded-t-none border-t-0 hover:bg-white/10 cursor-pointer w-full text-center">💬 Chat Log</button>
         <div id="chat-panel" class="premium-panel h-[55vh] mt-1 transition-all origin-top overflow-hidden">
