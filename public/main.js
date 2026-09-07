@@ -2,12 +2,15 @@ const socket = io();
 
 // --- 🐛 SYSTEM LOGGER ---
 const sysLogs = [];
-function logError(err, fix) { sysLogs.unshift(`[${new Date().toLocaleTimeString()}] ERROR: ${err} | FIX: ${fix}`); if(sysLogs.length > 50) sysLogs.pop(); }
-window.onerror = (msg) => logError(msg, "Check syntax or variables.");
+function logError(err, fix) { 
+    sysLogs.unshift(`[${new Date().toLocaleTimeString()}] ERROR: ${err} | FIX: ${fix}`); 
+    if(sysLogs.length > 50) sysLogs.pop(); 
+}
+window.onerror = (msg) => logError(msg, "Check syntax or network blocks.");
 
 // --- ⚙️ MASTER STATE ---
 let activeGame = 'word500', difficulty = 'moderate', wordLength = 5, sysMode = 'preview'; 
-let dictAll = {}, dictCommon = {}; 
+let dictCommon = {}; // Unified single dictionary
 let contextoData = [], contextoGuesses = [], bestContextoRank = 1000;
 let wordSearchData = { grid: [], words: [], size: 0 };
 let blossomData = { center: '', outers: [], found: [], targets: [] };
@@ -45,50 +48,41 @@ const INST = {
 };
 function updateInstructions() { instBar.innerHTML = INST[activeGame]?.en || "Rules loaded."; }
 
-// --- 🚀 INSTANT BOOT & TRUE MULTITHREADING DICTIONARY ---
+// --- 🚀 BULLETPROOF INSTANT BOOT SYSTEM ---
 async function bootSystem() {
     try {
-        // 1. Instant Boot (10k Words only takes 50ms to parse)
+        instBar.innerHTML = `<span class="text-yellow-400">Loading Base Lexicon...</span>`;
+        
+        // Single, highly-optimized 10k dictionary fetch
         const res = await fetch('https://raw.githubusercontent.com/first20hours/google-10000-english/master/google-10000-english-no-swears.txt');
+        if(!res.ok) throw new Error("Fetch blocked by network.");
+        
         const text = await res.text();
-        text.split(/\r?\n/).forEach(w => { const c = w.trim().toUpperCase(); if(c) { if(!dictCommon[c.length]) dictCommon[c.length]=[]; dictCommon[c.length].push(c); } });
-        dictAll = JSON.parse(JSON.stringify(dictCommon)); // Deep copy as fallback
-        
-        startNewRound(); // Start games instantly
-
-        // 2. Web Worker (Downloads & Parses 370k words on a separate CPU core, ZERO lag)
-        const workerCode = `
-            self.onmessage = async function() {
-                try {
-                    const res = await fetch('https://raw.githubusercontent.com/dwyl/english-words/master/words_alpha.txt');
-                    const text = await res.text();
-                    const words = text.split(/\\r?\\n/);
-                    let dict = {};
-                    for(let i=0; i<words.length; i++){
-                        let w = words[i].trim().toUpperCase();
-                        if(w) { if(!dict[w.length]) dict[w.length] = []; dict[w.length].push(w); }
-                        if(i % 10000 === 0) self.postMessage({status: 'progress', pct: Math.floor((i/words.length)*100)});
-                    }
-                    self.postMessage({status: 'done', dict: dict});
-                } catch(e) { self.postMessage({status: 'error'}); }
+        text.split(/\r?\n/).forEach(w => { 
+            const c = w.trim().toUpperCase(); 
+            if(c.length >= 4 && c.length <= 20) {
+                if(!dictCommon[c.length]) dictCommon[c.length]=[]; 
+                dictCommon[c.length].push(c); 
             }
-        `;
-        const blob = new Blob([workerCode], { type: 'application/javascript' });
-        const worker = new Worker(URL.createObjectURL(blob));
+        });
         
-        worker.onmessage = function(e) {
-            const badge = document.getElementById('sys-mode-badge');
-            if (e.data.status === 'progress') {
-                badge.innerText = `🔄 LOADING DICT: ${e.data.pct}%`;
-            } else if (e.data.status === 'done') {
-                dictAll = e.data.dict;
-                badge.innerText = sysMode === 'live' ? '🟢 LIVE NOW' : sysMode === 'demo' ? '🟣 DEMO MODE' : '🟡 PREVIEW MODE';
-                console.log("✅ 370k Lexicon loaded successfully in background thread.");
-            }
-        };
-        worker.postMessage('start');
+        document.getElementById('loading-dict').style.display = 'none';
+        console.log("✅ Core Engine Online. Lexicon Parsed.");
+        startNewRound();
 
-    } catch (err) { logError(err, "Network fetch failed."); }
+    } catch (err) { 
+        logError(err, "Network block. Loading Emergency Offline Dictionary."); 
+        
+        // THE FAIL-SAFE: If the internet drops during boot, the platform STILL STARTS.
+        const EMERGENCY_WORDS = ["APPLE","TRAIN","HOUSE","WATER","LIGHT","BRAIN","SMART","GHOST","HEART","STORM","MUSIC","WORLD","PIZZA","MONEY","POWER","SPACE","CLOCK","DANCE","RIVER","STONE","PLANT"];
+        EMERGENCY_WORDS.forEach(c => {
+            if(!dictCommon[c.length]) dictCommon[c.length]=[];
+            dictCommon[c.length].push(c);
+        });
+        
+        document.getElementById('loading-dict').style.display = 'none';
+        startNewRound();
+    }
 }
 bootSystem();
 
@@ -134,26 +128,30 @@ function startNewRound() {
 // 🟩 1. WORD 500
 function setupWord500() {
     document.getElementById('game-title').innerText = "WORD 500";
-    let list = getValidTargets((difficulty === 'easy' || difficulty === 'moderate') ? dictCommon[wordLength] : dictAll[wordLength]);
-    if(!list || list.length===0) list = dictAll[wordLength];
-    secretWord = list[Math.floor(Math.random() * list.length)]; prefetchDef(secretWord); renderKeyboard();
+    let len = parseInt(document.getElementById('length-slider').value) || 5;
+    let list = getValidTargets(dictCommon[len]);
+    if(!list || list.length===0) list = ["ERROR"]; // Absolute fail-safe
+    secretWord = list[Math.floor(Math.random() * list.length)];
+    prefetchDef(secretWord); renderKeyboard();
+    board.innerHTML = `<div class="text-gray-400 font-bold mt-4 tracking-widest uppercase text-center w-full">System Ready.</div>`;
 }
+
 function handleWord500Guess(guess, user) {
-    if (guess.length !== wordLength) return;
-    if(!dictAll[wordLength].includes(guess) && !dictCommon[wordLength].includes(guess)) return;
+    let len = parseInt(document.getElementById('length-slider').value) || 5;
+    if (guess.length !== len || !dictCommon[len]?.includes(guess)) return;
     
     let green = 0, yellow = 0, secArr = secretWord.split(''), gsArr = guess.split('');
-    for (let i=0; i<wordLength; i++) { if (gsArr[i] === secArr[i]) { green++; secArr[i] = null; gsArr[i] = null; } }
-    for (let i=0; i<wordLength; i++) { if (gsArr[i] !== null) { let idx = secArr.indexOf(gsArr[i]); if (idx !== -1) { yellow++; secArr[idx] = null; } } }
+    for (let i=0; i<len; i++) { if (gsArr[i] === secArr[i]) { green++; secArr[i] = null; gsArr[i] = null; } }
+    for (let i=0; i<len; i++) { if (gsArr[i] !== null) { let idx = secArr.indexOf(gsArr[i]); if (idx !== -1) { yellow++; secArr[idx] = null; } } }
     
     if(green === 0 && yellow === 0) guess.split('').forEach(l => { if(!keyState[l]) keyState[l] = 'used'; }); 
     renderKeyboard();
     
     let row = document.createElement('div'); row.className = "w-row";
-    row.innerHTML = `<div class="w-player">${user.username}</div><div class="w-letters">${guess.split('').map(l => `<div class="w-letter">${l}</div>`).join('')}</div><div class="w-clues"><div class="w-clue bg-green">${green}</div><div class="w-clue bg-yellow">${yellow}</div><div class="w-clue bg-red">${wordLength-green-yellow}</div></div>`;
+    row.innerHTML = `<div class="w-player">${user.username}</div><div class="w-letters">${guess.split('').map(l => `<div class="w-letter">${l}</div>`).join('')}</div><div class="w-clues"><div class="w-clue bg-green">${green}</div><div class="w-clue bg-yellow">${yellow}</div><div class="w-clue bg-red">${len-green-yellow}</div></div>`;
     board.prepend(row);
-    if(board.children.length > Math.max(6, 20-wordLength)) board.removeChild(board.lastChild);
-    if (green === wordLength) triggerEndGame(user, guess, 1);
+    if(board.children.length > Math.max(6, 20-len)) board.removeChild(board.lastChild);
+    if (green === len) triggerEndGame(user, guess, 1);
 }
 
 // 🎯 2. CONTEXTO
@@ -161,22 +159,30 @@ async function setupContexto() {
     vKeyboard.style.display = 'none'; contextoGuesses = []; bestContextoRank = 1000;
     document.getElementById('game-title').innerText = "CONTEXTO";
     board.innerHTML = `<div class="text-yellow-400 animate-pulse mt-10 font-bold tracking-widest text-xl text-center w-full">🧠 AI Building Semantic Tree...</div>`;
+    
     let len = (difficulty === 'hard' || difficulty === 'extreme') ? Math.floor(Math.random() * 3) + 7 : Math.floor(Math.random() * 3) + 4;
-    let list = getValidTargets(dictCommon[len]); secretWord = list[Math.floor(Math.random() * list.length)]; prefetchDef(secretWord);
+    let list = getValidTargets(dictCommon[len]); 
+    secretWord = list[Math.floor(Math.random() * list.length)]; 
+    prefetchDef(secretWord);
+    
     try {
         const res = await fetch(`https://api.datamuse.com/words?ml=${secretWord}&max=1000`);
         contextoData = (await res.json()).map(i => i.word.toUpperCase()); contextoData.unshift(secretWord);
         board.innerHTML = `<div class="contexto-list" id="contexto-board"></div>`;
     } catch (err) { activeGame = 'word500'; startNewRound(); }
 }
+
 function handleContextoGuess(guess, user) {
-    if(!dictAll[guess.length]?.includes(guess) && !dictCommon[guess.length]?.includes(guess)) { showToast("⚠️ Not a dictionary word!"); return; }
+    if(!dictCommon[guess.length]?.includes(guess)) { showToast("⚠️ Not a valid dictionary word!"); return; }
     if(contextoGuesses.some(g => g.word === guess)) { showToast("⚠️ Already guessed!"); return; }
+
     let rank = contextoData.indexOf(guess);
     if (rank === -1) { let hash = 0; for (let i = 0; i < guess.length; i++) hash = guess.charCodeAt(i) + ((hash << 5) - hash); rank = 1001 + (Math.abs(hash) % 89000); }
     if(rank < bestContextoRank) bestContextoRank = rank;
+    
     contextoGuesses.push({ word: guess, rank: rank, username: user.username });
     contextoGuesses.sort((a, b) => a.rank - b.rank); 
+    
     const cBoard = document.getElementById('contexto-board'); if(!cBoard) return; cBoard.innerHTML = "";
     contextoGuesses.slice(0, 10).forEach(g => {
         let percent = Math.max(5, 100 - (g.rank / 100)); let color = g.rank === 0 ? '#22c55e' : g.rank < 50 ? '#eab308' : g.rank < 500 ? '#f97316' : '#6b7280';
@@ -191,11 +197,13 @@ function handleContextoGuess(guess, user) {
 function setupWordSearch() {
     vKeyboard.style.display = 'none'; colorIdx = 0;
     document.getElementById('game-title').innerText = "WORD SEARCH";
+    
     let size = difficulty === 'easy' ? 10 : difficulty === 'moderate' ? 12 : difficulty === 'hard' ? 15 : 18;
     let count = difficulty === 'easy' ? 15 : difficulty === 'moderate' ? 20 : difficulty === 'hard' ? 25 : 30;
 
     let valid = getValidTargets(dictCommon[4].concat(dictCommon[5], dictCommon[6]).filter(w => w.length <= size - 2));
     let chosen = []; for(let i=0; i<count; i++) chosen.push(valid[Math.floor(Math.random() * valid.length)]);
+
     let grid = Array(size).fill(null).map(() => Array(size).fill(''));
     let placedInfo = [];
     let dirs = [[0,1,"Horizontal"], [1,0,"Vertical"]]; if(difficulty !== 'easy') dirs.push([1,1,"Diagonal"]);
@@ -227,6 +235,7 @@ function setupWordSearch() {
     placedInfo.forEach(w => html += `<div class="ws-clue-item" id="wsc-${w.word}"><span class="ws-clue-text">${w.len} Letters</span><div class="flex items-center gap-2 hidden" id="ws-finder-${w.word}"></div></div>`);
     board.innerHTML = html + `</div>`;
 }
+
 function handleWordSearchGuess(guess, user) {
     let target = wordSearchData.words.find(w => w.word === guess);
     if(target) {
@@ -270,12 +279,13 @@ function setupBlossom() {
     let angle = 0, html = `<div class="blossom-container"><div class="petal center"><span>${center}</span></div>`;
     outers.forEach(l => {
         let x = Math.cos(angle) * 100; let y = Math.sin(angle) * 100; let rot = angle * (180/Math.PI);
-        html += `<div class="petal" style="transform: translate(calc(-50% + ${x}px), calc(-50% + ${y}px)); top: 50%; left: 50%;"><span>${l}</span></div>`;
+        html += `<div class="petal" style="transform: translate(calc(-50% + ${x}px), calc(-50% + ${y}px)) rotate(${rot}deg); top: 50%; left: 50%; --rot: ${rot}deg;"><span>${l}</span></div>`;
         angle += (Math.PI * 2) / 6;
     });
     html += `</div><div class="text-yellow-400 font-black text-2xl mt-6 text-center w-full">FOUND: <span id="blossom-count">0</span> / ${targets.length}</div><div class="flex flex-wrap gap-2 mt-4 w-full justify-center max-w-4xl" id="blossom-found-list"></div>`;
     board.innerHTML = html;
 }
+
 function handleBlossomGuess(guess, user) {
     if(blossomData.targets.includes(guess) && !blossomData.found.includes(guess)) {
         blossomData.found.push(guess); document.getElementById('blossom-count').innerText = blossomData.found.length;
@@ -294,7 +304,8 @@ function handleBlossomGuess(guess, user) {
 // 🎴 5. MEMORY
 function setupMemory() {
     vKeyboard.style.display = 'none'; document.getElementById('game-title').innerText = "MEMORY";
-    let pairs = difficulty === 'easy' ? 4 : difficulty === 'moderate' ? 6 : difficulty === 'hard' ? 10 : 15;
+    let diff = document.getElementById('diff-selector').value;
+    let pairs = diff === 'easy' ? 4 : diff === 'moderate' ? 6 : diff === 'hard' ? 10 : 15;
     const emojis = ["🍎","🚗","🐶","⚽","🎸","🚀","💎","🔥","🍕","🧩","👻","🦄","🥑","🎧","🏆","🦖"];
     let deck = []; for(let i=0; i<pairs; i++) { deck.push(emojis[i]); deck.push(emojis[i]); }
     deck.sort(() => Math.random() - 0.5); 
@@ -305,6 +316,7 @@ function setupMemory() {
     deck.forEach((c, i) => { html += `<div class="memory-card" id="mem-${i}"><span>${i+1}</span><span class="hidden">${c}</span></div>`; });
     board.innerHTML = html + `</div>`;
 }
+
 function handleMemoryGuess(guess, user) {
     if(memoryData.lock) return; const match = guess.match(/^(\d+)\s+(\d+)$/); if(!match) return;
     let i1 = parseInt(match[1]) - 1, i2 = parseInt(match[2]) - 1;
@@ -380,13 +392,15 @@ function setupGeoGame(type) {
     if(type === 'worldle') {
         board.innerHTML = `<img src="https://raw.githubusercontent.com/djaiss/mapsicon/master/all/${t.iso}/vector.svg" class="worldle-img" onerror="this.style.display='none'">
         <div id="geo-list" class="w-full max-w-xl mt-4 flex flex-col gap-2"></div>`;
-    } else board.innerHTML = `<div id="geo-list" class="w-full max-w-xl mt-4 flex flex-col gap-2"></div>`;
+    } else {
+        board.innerHTML = `<div id="geo-list" class="w-full max-w-xl mt-4 flex flex-col gap-2"></div>`;
+    }
 }
 function handleGeoGuess(guess, user) {
     let country = COUNTRIES.find(c => c.name === guess || c.cap === guess);
     if(!country) { showToast(`⚠️ @${user.username}, '${guess}' is not a recognized geography target.`); return; }
     
-    // Haversine
+    // Haversine Distance Math
     const R = 6371; const dLat = (country.lat - geoData.target.lat)*Math.PI/180; const dLon = (country.lon - geoData.target.lon)*Math.PI/180;
     const a = Math.sin(dLat/2)*Math.sin(dLat/2) + Math.cos(geoData.target.lat*Math.PI/180)*Math.cos(country.lat*Math.PI/180)*Math.sin(dLon/2)*Math.sin(dLon/2);
     let dist = Math.round(R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)));
@@ -451,7 +465,26 @@ function handleRedactleGuess(guess, user) {
     }
 }
 
-// --- 🤖 BOTS & INPUT PIPELINE ---
+
+// --- 🔌 INPUT, BOTS, AND NETWORKING ---
+function makeDraggable(wrapId, handleId) {
+    const wrap = document.getElementById(wrapId); const handle = document.getElementById(handleId);
+    let isDragging = false, offX, offY;
+    handle.addEventListener('mousedown', e => { isDragging=true; offX=e.clientX-wrap.offsetLeft; offY=e.clientY-wrap.offsetTop; });
+    document.addEventListener('mousemove', e => { if(isDragging) { wrap.style.left=(e.clientX-offX)+'px'; wrap.style.top=(e.clientY-offY)+'px'; wrap.style.bottom='auto'; wrap.style.right='auto'; } });
+    document.addEventListener('mouseup', () => isDragging=false);
+}
+makeDraggable('instruction-wrapper', 'inst-drag');
+makeDraggable('chat-wrapper', 'chat-drag');
+
+document.getElementById('btn-toggle-instructions').addEventListener('click', () => document.getElementById('instruction-panel').classList.toggle('scale-y-0'));
+document.getElementById('btn-toggle-chat').addEventListener('click', () => document.getElementById('chat-panel').classList.toggle('scale-y-0'));
+document.getElementById('btn-toggle-host').addEventListener('click', () => document.getElementById('host-menu').classList.toggle('scale-0'));
+document.getElementById('btn-toggle-input').addEventListener('click', e => { 
+    let p = document.getElementById('host-input-panel'); 
+    p.classList.contains('scale-y-0') ? (p.classList.remove('scale-y-0','h-0','p-0','border-0', 'opacity-0'), e.target.innerText="▼ Hide Input") : (p.classList.add('scale-y-0','h-0','p-0','border-0', 'opacity-0'), e.target.innerText="▲ Show Input"); 
+});
+
 socket.on('sys_status', status => {
     if(sysMode !== 'demo') {
         let isDemoMode = status === 'DEMO'; sysMode = isDemoMode ? 'preview' : 'live';
@@ -536,7 +569,6 @@ document.getElementById('btn-hint').addEventListener('click', () => {
     else if (['worldle','globle','capitale'].includes(activeGame)) { showToast(`💡 HINT: The target is ${secretWord.length} letters long!`, true); }
 });
 
-// UI Bindings
 document.querySelectorAll('.tab-btn').forEach(btn => { btn.addEventListener('click', (e) => { document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('text-teal-400', 'border-b-4', 'border-teal-400')); e.target.classList.add('text-teal-400', 'border-b-4', 'border-teal-400'); document.querySelectorAll('.tab-content').forEach(c => c.classList.add('hidden')); document.getElementById(e.target.getAttribute('data-target')).classList.remove('hidden'); document.getElementById(e.target.getAttribute('data-target')).classList.add('flex'); }); });
 document.getElementById('mode-selector').addEventListener('change', e => { sysMode = e.target.value; const b = document.getElementById('sys-mode-badge'); b.className = `status-badge status-${sysMode}`; b.innerText = sysMode === 'live' ? '🟢 LIVE MODE' : sysMode === 'demo' ? '🟣 DEMO (BOTS)' : '🟡 PREVIEW'; });
 document.getElementById('theme-selector').addEventListener('change', e => document.body.className = e.target.value);
@@ -551,7 +583,3 @@ document.getElementById('zoom-slider').addEventListener('input', (e) => { docume
 document.getElementById('btn-reset-score').addEventListener('click', () => { if(confirm("Wipe all leaderboards?")) fetch('/api/reset_scores', {method: 'POST'}); });
 document.getElementById('lang-selector').addEventListener('change', updateInstructions);
 document.getElementById('btn-fullscreen').addEventListener('click', () => { if (!document.fullscreenElement) document.documentElement.requestFullscreen(); else if (document.exitFullscreen) document.exitFullscreen(); });
-
-// Drag setup
-makeDraggable('instruction-wrapper', 'inst-drag');
-makeDraggable('chat-wrapper', 'chat-drag');
