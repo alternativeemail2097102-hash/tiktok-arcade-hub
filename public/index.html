@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Arcade Hub Broadcast V15</title>
+    <title>Arcade Hub Broadcast V16</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="style.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
@@ -15,7 +15,7 @@
     <!-- TICKER -->
     <div class="ticker-wrap"><div class="ticker-track" id="leaderboard-ticker"><div class="ticker-item text-yellow-400">WAITING FOR PLAYERS...</div></div></div>
     
-    <div id="sys-mode-badge" class="status-badge status-demo">🟡 PREVIEW MODE</div>
+    <div id="sys-mode-badge" class="status-badge status-preview">🟡 PREVIEW MODE</div>
 
     <!-- HOST PANEL -->
     <div class="absolute top-[60px] left-4 z-[110] flex flex-col gap-2">
@@ -41,11 +41,19 @@
                             <option value="blossom">🌹 Blossom</option>
                             <option value="memory">🎴 Memory</option>
                         </optgroup>
-                        <optgroup label="Geographic & Deductive">
+                        <optgroup label="Algebraic Grid Logic">
+                            <option value="duckdoku">🦆 Duckdoku</option>
+                            <option value="meowdoku">🐱 Meowdoku</option>
+                            <option value="murdoku">🔪 Murdoku</option>
+                            <option value="kakuro">➕ Kakuro</option>
+                            <option value="nonogram">🔳 Nonogram</option>
+                        </optgroup>
+                        <optgroup label="Geography & Deductive">
                             <option value="worldle">🌍 Worldle</option>
                             <option value="globle">🌡️ Globle</option>
                             <option value="capitale">🏛️ Capitale</option>
                             <option value="animadle">🐾 Animadle</option>
+                            <option value="redactle">⬛ Redactle</option>
                         </optgroup>
                     </select>
 
@@ -96,8 +104,8 @@
     <div id="chat-wrapper" class="drag-wrapper w-80" style="top: 130px; right: 16px;">
         <div class="drag-handle" id="chat-drag">DRAG TO MOVE</div>
         <button id="btn-toggle-chat" class="premium-panel text-white text-sm font-bold px-4 py-3 uppercase rounded-t-none border-t-0 hover:bg-white/10 cursor-pointer w-full text-center">💬 Chat Log</button>
-        <div id="chat-panel" class="premium-panel h-[55vh] mt-1 transition-all origin-top overflow-hidden">
-            <div class="p-4 h-full flex flex-col">
+        <div id="chat-panel" class="premium-panel h-[55vh] mt-1 transition-all origin-top overflow-hidden flex flex-col">
+            <div class="p-4 h-full flex flex-col overflow-hidden">
                 <ul id="live-chat" class="flex flex-col justify-end flex-1 space-y-2 overflow-y-auto chat-scrollbar pr-1"></ul>
             </div>
         </div>
