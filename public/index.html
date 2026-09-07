@@ -14,8 +14,7 @@
 
     <!-- TICKER -->
     <div class="ticker-wrap"><div class="ticker-track" id="leaderboard-ticker"><div class="ticker-item text-yellow-400">WAITING FOR PLAYERS...</div></div></div>
-    
-    <div id="sys-mode-badge" class="status-badge status-demo">🟡 PREVIEW MODE</div>
+    <div id="sys-mode-badge" class="status-badge status-preview">🟡 PREVIEW MODE</div>
 
     <!-- HOST PANEL -->
     <div class="absolute top-[60px] left-4 z-[110] flex flex-col gap-2">
@@ -33,21 +32,17 @@
             <div class="p-6 flex flex-col gap-4">
                 <div id="tab-game" class="tab-content flex flex-col gap-4">
                     <label class="text-sm text-gray-400 font-bold uppercase">Game Engine</label>
-                    <select id="game-selector" class="premium-input text-white">
+                    <select id="game-selector" class="premium-input">
                         <optgroup label="Word & Logic">
                             <option value="word500">🟩 Word500</option>
                             <option value="contexto">🎯 Contexto</option>
                             <option value="wordsearch">🔍 Word Search</option>
-                            <option value="blossom">🌹 Blossom</option>
-                            <option value="redactle">⬛ Redactle</option>
+                            <option value="blossom">🌹 Blossom (LexiBloom)</option>
                         </optgroup>
                         <optgroup label="Grid & Memory">
                             <option value="memory">🎴 Memory</option>
                             <option value="duckdoku">🦆 Duckdoku</option>
                             <option value="meowdoku">🐱 Meowdoku</option>
-                            <option value="murdoku">🔪 Murdoku</option>
-                            <option value="kakuro">➕ Kakuro</option>
-                            <option value="nonogram">🔳 Nonogram</option>
                         </optgroup>
                         <optgroup label="Geography & Nature">
                             <option value="worldle">🌍 Worldle</option>
@@ -81,6 +76,7 @@
 
                     <label class="text-sm text-gray-400 font-bold uppercase flex justify-between mt-2">Zoom <span id="zoom-display" class="text-teal-400 text-lg">100%</span></label>
                     <input type="range" id="zoom-slider" min="10" max="500" value="100" class="w-full accent-teal-500 cursor-pointer">
+
                     <button id="btn-reset-score" class="premium-btn bg-red-900 text-white text-sm mt-4">🔄 Reset Scores</button>
                 </div>
             </div>
@@ -88,21 +84,25 @@
     </div>
 
     <!-- DRAGGABLE INSTRUCTIONS -->
-    <div id="instruction-wrapper" class="drag-wrapper w-80" style="bottom: 120px; left: 16px;">
+    <div id="instruction-wrapper" class="absolute z-[90] flex flex-col w-80" style="bottom: 120px; left: 16px;">
         <div class="drag-handle" id="inst-drag">DRAG TO MOVE</div>
-        <button id="btn-toggle-instructions" class="premium-panel text-white text-sm font-bold px-4 py-3 uppercase rounded-t-none w-full border-t-0 hover:bg-white/10 cursor-pointer">ℹ️ Game Rules (Toggle)</button>
-        <div id="instruction-panel" class="premium-panel p-5 mt-1 transition-all origin-top">
-            <select id="lang-selector" class="premium-input text-sm p-2 bg-black"><option value="en">🇺🇸 English</option></select>
-            <p id="instruction-text" class="text-white mt-2 leading-relaxed text-sm"></p>
+        <button id="btn-toggle-instructions" class="premium-panel text-white text-sm font-bold px-4 py-3 uppercase rounded-t-none border-t-0 hover:bg-white/10 cursor-pointer w-full text-center">ℹ️ Game Rules</button>
+        <div id="instruction-panel" class="premium-panel game-glow mt-1 transition-all origin-top overflow-hidden">
+            <div class="p-5 flex flex-col gap-3">
+                <select id="lang-selector" class="premium-input text-sm p-2 bg-black text-gray-300"><option value="en">🇺🇸 English</option></select>
+                <p id="instruction-text" class="text-white mt-1 leading-relaxed text-sm"></p>
+            </div>
         </div>
     </div>
 
     <!-- DRAGGABLE CHAT -->
-    <div id="chat-wrapper" class="drag-wrapper w-80" style="top: 150px; right: 16px;">
+    <div id="chat-wrapper" class="absolute z-[90] flex flex-col w-80" style="top: 130px; right: 16px;">
         <div class="drag-handle" id="chat-drag">DRAG TO MOVE</div>
-        <button id="btn-toggle-chat" class="premium-panel text-white text-sm font-bold px-4 py-3 uppercase rounded-t-none w-full border-t-0 hover:bg-white/10 cursor-pointer">💬 Chat (Toggle)</button>
-        <div id="chat-panel" class="premium-panel p-4 h-[50vh] flex flex-col mt-1 transition-all origin-top">
-            <ul id="live-chat" class="flex flex-col justify-end flex-1 space-y-2 overflow-y-auto chat-scrollbar pr-1"></ul>
+        <button id="btn-toggle-chat" class="premium-panel text-white text-sm font-bold px-4 py-3 uppercase rounded-t-none border-t-0 hover:bg-white/10 cursor-pointer w-full text-center">💬 Chat Log</button>
+        <div id="chat-panel" class="premium-panel h-[55vh] mt-1 transition-all origin-top overflow-hidden">
+            <div class="p-4 h-full flex flex-col">
+                <ul id="live-chat" class="flex flex-col justify-end flex-1 space-y-2 overflow-y-auto chat-scrollbar pr-1"></ul>
+            </div>
         </div>
     </div>
 
@@ -111,17 +111,21 @@
         <div id="broadcast-stage" class="w-full max-w-6xl flex flex-col items-center transition-transform duration-300 pointer-events-auto h-full justify-center pb-32 px-4">
             <h1 class="text-6xl md:text-8xl font-black tracking-widest accent-text uppercase drop-shadow-2xl mb-2 text-center" id="game-title">ARCADE</h1>
             <p class="text-white text-lg tracking-widest mb-6 font-bold bg-black/60 px-6 py-2 rounded-full border border-white/20" id="game-instructions">Initializing Engine...</p>
-            <div id="game-board" class="w-full flex-1 premium-panel game-glow p-5 flex flex-col gap-3 overflow-y-auto hidden-scrollbar items-center relative mb-4"></div>
+            
+            <div id="game-board" class="w-full flex-1 premium-panel game-glow p-5 flex flex-col gap-3 overflow-y-auto hidden-scrollbar items-center relative mb-4">
+                <div id="loading-dict" class="text-yellow-400 font-bold mt-10 animate-pulse text-2xl tracking-widest text-center">📚 BOOTING CORE ENGINE...</div>
+            </div>
+            
             <div id="virtual-keyboard" class="keyboard" style="display: none;"></div>
         </div>
     </div>
 
     <!-- HOST OVERRIDE -->
     <div class="fixed bottom-0 left-1/2 transform -translate-x-1/2 z-[100] flex flex-col items-center w-11/12 max-w-3xl transition-transform duration-300" id="host-input-wrapper">
-        <button id="btn-toggle-input" class="bg-teal-500 text-black px-8 py-2 rounded-t-xl font-black text-base uppercase cursor-pointer z-20 shadow-[0_-5px_15px_rgba(0,0,0,0.5)]">▼ Hide Input</button>
+        <button id="btn-toggle-input" class="bg-teal-500 text-black px-8 py-2 rounded-t-xl font-black text-base uppercase cursor-pointer border border-b-0 border-teal-400 hover:bg-teal-400 shadow-[0_-5px_15px_rgba(0,0,0,0.5)] z-20">▼ Hide Input</button>
         <div id="host-input-panel" class="premium-panel w-full px-6 py-5 flex gap-4 items-center border-b-0 rounded-b-none shadow-2xl z-10 origin-bottom transition-all">
             <div class="bg-teal-500/20 px-3 py-1 rounded text-teal-400 text-sm font-black uppercase tracking-widest border border-teal-500/30">Host</div>
-            <input type="text" id="host-test-input" placeholder="Type command & hit Enter..." class="premium-input flex-1 text-center text-xl uppercase tracking-widest">
+            <input type="text" id="host-test-input" placeholder="Type command & hit Enter..." class="premium-input flex-1 text-center text-xl tracking-widest uppercase">
             <button id="btn-test-guess" class="premium-btn text-lg px-8 py-3">SEND</button>
         </div>
     </div>
