@@ -1,23 +1,14 @@
 const socket = io();
 
-// --- 🐛 SYSTEM LOGGER ---
-const sysLogs = [];
-function logError(err, fix) { 
-    sysLogs.unshift(`[${new Date().toLocaleTimeString()}] ERROR: ${err} | FIX: ${fix}`); 
-    if(sysLogs.length > 50) sysLogs.pop(); 
-}
-window.onerror = (msg) => logError(msg, "Check syntax or network blocks.");
-
-// --- ⚙️ MASTER STATE ---
+// --- ⚙️ STATE ---
 let activeGame = 'word500', difficulty = 'moderate', wordLength = 5, sysMode = 'preview'; 
-let dictCommon = {}; // Unified single dictionary
+let dictAll = {}, dictCommon = {}; 
 let contextoData = [], contextoGuesses = [], bestContextoRank = 1000;
 let wordSearchData = { grid: [], words: [], size: 0 };
 let blossomData = { center: '', outers: [], found: [], targets: [] };
 let memoryData = { cards: [], flipped: [], matched: 0, lock: false };
 let gridData = { board: [], solution: [], type: '', size: 0 }; 
 let geoData = { target: null, type: '' }; 
-let redactleData = { words: [], revealed: [] };
 
 let playerColors = ["#ef4444", "#3b82f6", "#a855f7", "#f97316", "#ec4899", "#14b8a6", "#fde047"];
 let colorIdx = 0, secretWord = "", preloadedDef = "", isGameOver = false, keyState = {}; 
@@ -26,7 +17,7 @@ const board = document.getElementById('game-board');
 const vKeyboard = document.getElementById('virtual-keyboard');
 const instBar = document.getElementById('game-instructions');
 
-// --- 📖 DATABASES & INSTRUCTIONS ---
+// --- 📖 DATABASES ---
 const COUNTRIES = [{ name: "UNITED STATES", cap: "WASHINGTON", lat: 37.09, lon: -95.71, iso: "us" }, { name: "CANADA", cap: "OTTAWA", lat: 56.13, lon: -106.34, iso: "ca" }, { name: "BRAZIL", cap: "BRASILIA", lat: -14.23, lon: -51.92, iso: "br" }, { name: "FRANCE", cap: "PARIS", lat: 46.22, lon: 2.21, iso: "fr" }, { name: "JAPAN", cap: "TOKYO", lat: 36.20, lon: 138.25, iso: "jp" }, { name: "AUSTRALIA", cap: "CANBERRA", lat: -25.27, lon: 133.77, iso: "au" }, { name: "INDONESIA", cap: "JAKARTA", lat: -0.78, lon: 113.92, iso: "id" }, { name: "MALAYSIA", cap: "KUALA LUMPUR", lat: 4.21, lon: 101.97, iso: "my" }, { name: "EGYPT", cap: "CAIRO", lat: 26.82, lon: 30.80, iso: "eg" }, { name: "SPAIN", cap: "MADRID", lat: 40.46, lon: -3.74, iso: "es" }];
 const ANIMALS = [{ name: "LION", class: "Mammal", diet: "Carnivore", habitat: "Savanna" }, { name: "EAGLE", class: "Bird", diet: "Carnivore", habitat: "Mountains" }, { name: "FROG", class: "Amphibian", diet: "Carnivore", habitat: "Swamp" }, { name: "SHARK", class: "Fish", diet: "Carnivore", habitat: "Ocean" }, { name: "HORSE", class: "Mammal", diet: "Herbivore", habitat: "Plains" }];
 const INST = {
@@ -37,52 +28,39 @@ const INST = {
     memory: { en: "<b>MEMORY:</b> Match pairs! Type two numbers in chat (e.g. '3 7')." },
     duckdoku: { en: "<b>DUCKDOKU:</b> Sudoku with Ducks! Type coords and emoji (e.g. 'A1 🦆')." },
     meowdoku: { en: "<b>MEOWDOKU:</b> Sudoku with Cats! Type coords (e.g. 'C3 😻')." },
-    murdoku: { en: "<b>MURDOKU:</b> Killer Sudoku. Cages must sum up correctly. Type 'A1 5'." },
-    kakuro: { en: "<b>KAKURO:</b> Cross sums. Fill blanks to match row/col sums. Type 'B2 9'." },
-    nonogram: { en: "<b>NONOGRAM:</b> Paint the grid! Type 'A1 FILL' or 'B2 EMPTY'." },
     worldle: { en: "<b>WORLDLE:</b> Guess the country by shape. Get distance hints!" },
     globle: { en: "<b>GLOBLE:</b> Guess any country. Hotter colors = closer to target!" },
     capitale: { en: "<b>CAPITALE:</b> Guess the Capital City!" },
-    animadle: { en: "<b>ANIMADLE:</b> Guess the animal to reveal its Class, Diet, and Habitat!" },
-    redactle: { en: "<b>REDACTLE:</b> Guess words to un-redact the Wikipedia article!" }
+    animadle: { en: "<b>ANIMADLE:</b> Guess the animal to reveal its Class, Diet, and Habitat!" }
 };
 function updateInstructions() { instBar.innerHTML = INST[activeGame]?.en || "Rules loaded."; }
 
-// --- 🚀 BULLETPROOF INSTANT BOOT SYSTEM ---
+// --- 🚀 INSTANT BOOT & BACKGROUND DICT LOADING ---
 async function bootSystem() {
     try {
-        instBar.innerHTML = `<span class="text-yellow-400">Loading Base Lexicon...</span>`;
-        
-        // Single, highly-optimized 10k dictionary fetch
         const res = await fetch('https://raw.githubusercontent.com/first20hours/google-10000-english/master/google-10000-english-no-swears.txt');
-        if(!res.ok) throw new Error("Fetch blocked by network.");
-        
         const text = await res.text();
-        text.split(/\r?\n/).forEach(w => { 
-            const c = w.trim().toUpperCase(); 
-            if(c.length >= 4 && c.length <= 20) {
-                if(!dictCommon[c.length]) dictCommon[c.length]=[]; 
-                dictCommon[c.length].push(c); 
-            }
-        });
-        
+        text.split(/\r?\n/).forEach(w => { const c = w.trim().toUpperCase(); if(c) { if(!dictCommon[c.length]) dictCommon[c.length]=[]; dictCommon[c.length].push(c); } });
+        dictAll = JSON.parse(JSON.stringify(dictCommon)); 
         document.getElementById('loading-dict').style.display = 'none';
-        console.log("✅ Core Engine Online. Lexicon Parsed.");
-        startNewRound();
+        startNewRound(); // Boots instantly
 
-    } catch (err) { 
-        logError(err, "Network block. Loading Emergency Offline Dictionary."); 
+        const rA = await fetch('https://raw.githubusercontent.com/dwyl/english-words/master/words_alpha.txt');
+        const textAll = await rA.text();
+        const lines = textAll.split(/\r?\n/);
         
-        // THE FAIL-SAFE: If the internet drops during boot, the platform STILL STARTS.
-        const EMERGENCY_WORDS = ["APPLE","TRAIN","HOUSE","WATER","LIGHT","BRAIN","SMART","GHOST","HEART","STORM","MUSIC","WORLD","PIZZA","MONEY","POWER","SPACE","CLOCK","DANCE","RIVER","STONE","PLANT"];
-        EMERGENCY_WORDS.forEach(c => {
-            if(!dictCommon[c.length]) dictCommon[c.length]=[];
-            dictCommon[c.length].push(c);
-        });
-        
-        document.getElementById('loading-dict').style.display = 'none';
-        startNewRound();
-    }
+        let currentIndex = 0;
+        function processChunk() {
+            let endIndex = Math.min(currentIndex + 5000, lines.length);
+            for(; currentIndex < endIndex; currentIndex++) {
+                const c = lines[currentIndex].trim().toUpperCase();
+                if(c) { if(!dictAll[c.length]) dictAll[c.length]=[]; dictAll[c.length].push(c); }
+            }
+            if (currentIndex < lines.length) requestAnimationFrame(processChunk);
+            else console.log("✅ 370k Extended Lexicon loaded seamlessly.");
+        }
+        requestAnimationFrame(processChunk);
+    } catch (err) { console.error("Dictionary Fetch failed."); startNewRound(); }
 }
 bootSystem();
 
@@ -93,7 +71,25 @@ function prefetchDef(word) {
     fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${word.toLowerCase()}`).then(res => res.json()).then(data => { preloadedDef = data[0].meanings[0].definitions[0].definition; }).catch(e=>{});
 }
 
-// --- ⌨️ VIRTUAL KEYBOARD ---
+// --- UI Toggles & Draggables ---
+function makeDraggable(wrapId, handleId) {
+    const wrap = document.getElementById(wrapId); const handle = document.getElementById(handleId);
+    let isDragging = false, offX, offY;
+    handle.addEventListener('mousedown', e => { isDragging=true; offX=e.clientX-wrap.offsetLeft; offY=e.clientY-wrap.offsetTop; });
+    document.addEventListener('mousemove', e => { if(isDragging) { wrap.style.left=(e.clientX-offX)+'px'; wrap.style.top=(e.clientY-offY)+'px'; wrap.style.bottom='auto'; wrap.style.right='auto'; } });
+    document.addEventListener('mouseup', () => isDragging=false);
+}
+makeDraggable('instruction-wrapper', 'inst-drag'); makeDraggable('chat-wrapper', 'chat-drag');
+
+document.getElementById('btn-toggle-instructions').addEventListener('click', () => document.getElementById('instruction-panel').classList.toggle('scale-y-0'));
+document.getElementById('btn-toggle-chat').addEventListener('click', () => document.getElementById('chat-panel').classList.toggle('scale-y-0'));
+document.getElementById('btn-toggle-host').addEventListener('click', () => document.getElementById('host-menu').classList.toggle('scale-0'));
+document.getElementById('btn-toggle-input').addEventListener('click', e => { 
+    let p = document.getElementById('host-input-panel'); 
+    p.classList.contains('scale-y-0') ? (p.classList.remove('scale-y-0','h-0','p-0','border-0', 'opacity-0'), e.target.innerText="▼ Hide Input") : (p.classList.add('scale-y-0','h-0','p-0','border-0', 'opacity-0'), e.target.innerText="▲ Show Input"); 
+});
+
+// --- ⌨️ KEYBOARD ---
 function renderKeyboard() {
     if(activeGame !== 'word500') { vKeyboard.style.display = 'none'; return; }
     vKeyboard.style.display = 'flex';
@@ -110,61 +106,51 @@ window.cycleKeyColor = function(l) {
     renderKeyboard();
 }
 
-// --- 🎮 MASTER ROUTER ---
+// --- 🎮 ROUTERS ---
 function startNewRound() {
     isGameOver = false; board.innerHTML = ""; keyState = {}; updateInstructions(); fetchLeaderboard();
-    
     if(activeGame === 'word500') setupWord500(); 
     else if(activeGame === 'contexto') setupContexto(); 
     else if(activeGame === 'wordsearch') setupWordSearch();
     else if(activeGame === 'blossom') setupBlossom();
     else if(activeGame === 'memory') setupMemory();
-    else if(['duckdoku','meowdoku','murdoku','kakuro','nonogram'].includes(activeGame)) setupGridGame(activeGame);
+    else if(['duckdoku','meowdoku'].includes(activeGame)) setupGridGame(activeGame);
     else if(['worldle','globle','capitale'].includes(activeGame)) setupGeoGame(activeGame);
     else if(activeGame === 'animadle') setupAnimadle();
-    else if(activeGame === 'redactle') setupRedactle();
 }
 
-// 🟩 1. WORD 500
+// 🟩 WORD 500
 function setupWord500() {
-    document.getElementById('game-title').innerText = "WORD 500";
-    let len = parseInt(document.getElementById('length-slider').value) || 5;
-    let list = getValidTargets(dictCommon[len]);
-    if(!list || list.length===0) list = ["ERROR"]; // Absolute fail-safe
+    let list = getValidTargets((difficulty === 'easy' || difficulty === 'moderate') ? dictCommon[wordLength] : dictAll[wordLength]);
+    if(!list || list.length===0) list = dictAll[wordLength] || ["ERROR"];
     secretWord = list[Math.floor(Math.random() * list.length)];
     prefetchDef(secretWord); renderKeyboard();
-    board.innerHTML = `<div class="text-gray-400 font-bold mt-4 tracking-widest uppercase text-center w-full">System Ready.</div>`;
+    board.innerHTML = `<div class="text-gray-400 font-bold mt-4 tracking-widest uppercase">System Ready.</div>`;
 }
 
 function handleWord500Guess(guess, user) {
-    let len = parseInt(document.getElementById('length-slider').value) || 5;
-    if (guess.length !== len || !dictCommon[len]?.includes(guess)) return;
+    if (guess.length !== wordLength || (!dictAll[wordLength].includes(guess) && !dictCommon[wordLength].includes(guess))) return;
     
     let green = 0, yellow = 0, secArr = secretWord.split(''), gsArr = guess.split('');
-    for (let i=0; i<len; i++) { if (gsArr[i] === secArr[i]) { green++; secArr[i] = null; gsArr[i] = null; } }
-    for (let i=0; i<len; i++) { if (gsArr[i] !== null) { let idx = secArr.indexOf(gsArr[i]); if (idx !== -1) { yellow++; secArr[idx] = null; } } }
+    for (let i=0; i<wordLength; i++) { if (gsArr[i] === secArr[i]) { green++; secArr[i] = null; gsArr[i] = null; } }
+    for (let i=0; i<wordLength; i++) { if (gsArr[i] !== null) { let idx = secArr.indexOf(gsArr[i]); if (idx !== -1) { yellow++; secArr[idx] = null; } } }
     
     if(green === 0 && yellow === 0) guess.split('').forEach(l => { if(!keyState[l]) keyState[l] = 'used'; }); 
     renderKeyboard();
     
     let row = document.createElement('div'); row.className = "w-row";
-    row.innerHTML = `<div class="w-player">${user.username}</div><div class="w-letters">${guess.split('').map(l => `<div class="w-letter">${l}</div>`).join('')}</div><div class="w-clues"><div class="w-clue bg-green">${green}</div><div class="w-clue bg-yellow">${yellow}</div><div class="w-clue bg-red">${len-green-yellow}</div></div>`;
+    row.innerHTML = `<div class="w-player">${user.username}</div><div class="w-letters">${guess.split('').map(l => `<div class="w-letter">${l}</div>`).join('')}</div><div class="w-clues"><div class="w-clue bg-green">${green}</div><div class="w-clue bg-yellow">${yellow}</div><div class="w-clue bg-red">${wordLength-green-yellow}</div></div>`;
     board.prepend(row);
-    if(board.children.length > Math.max(6, 20-len)) board.removeChild(board.lastChild);
-    if (green === len) triggerEndGame(user, guess, 1);
+    if(board.children.length > Math.max(6, 20-wordLength)) board.removeChild(board.lastChild);
+    if (green === wordLength) triggerEndGame(user, guess, 1);
 }
 
-// 🎯 2. CONTEXTO
+// 🎯 CONTEXTO
 async function setupContexto() {
     vKeyboard.style.display = 'none'; contextoGuesses = []; bestContextoRank = 1000;
-    document.getElementById('game-title').innerText = "CONTEXTO";
-    board.innerHTML = `<div class="text-yellow-400 animate-pulse mt-10 font-bold tracking-widest text-xl text-center w-full">🧠 AI Building Semantic Tree...</div>`;
-    
+    board.innerHTML = `<div class="text-yellow-400 animate-pulse mt-10 font-bold tracking-widest text-xl">🧠 AI Building Semantic Tree...</div>`;
     let len = (difficulty === 'hard' || difficulty === 'extreme') ? Math.floor(Math.random() * 3) + 7 : Math.floor(Math.random() * 3) + 4;
-    let list = getValidTargets(dictCommon[len]); 
-    secretWord = list[Math.floor(Math.random() * list.length)]; 
-    prefetchDef(secretWord);
-    
+    let list = getValidTargets(dictCommon[len]); secretWord = list[Math.floor(Math.random() * list.length)]; prefetchDef(secretWord);
     try {
         const res = await fetch(`https://api.datamuse.com/words?ml=${secretWord}&max=1000`);
         contextoData = (await res.json()).map(i => i.word.toUpperCase()); contextoData.unshift(secretWord);
@@ -173,7 +159,7 @@ async function setupContexto() {
 }
 
 function handleContextoGuess(guess, user) {
-    if(!dictCommon[guess.length]?.includes(guess)) { showToast("⚠️ Not a valid dictionary word!"); return; }
+    if(!dictAll[guess.length]?.includes(guess) && !dictCommon[guess.length]?.includes(guess)) { showToast("⚠️ Not a valid dictionary word!"); return; }
     if(contextoGuesses.some(g => g.word === guess)) { showToast("⚠️ Already guessed!"); return; }
 
     let rank = contextoData.indexOf(guess);
@@ -193,11 +179,9 @@ function handleContextoGuess(guess, user) {
     if (rank === 0) triggerEndGame(user, guess, 2); else if (rank <= 10) updateScore(user, 1);
 }
 
-// 🔍 3. WORD SEARCH
+// 🔍 WORD SEARCH
 function setupWordSearch() {
     vKeyboard.style.display = 'none'; colorIdx = 0;
-    document.getElementById('game-title').innerText = "WORD SEARCH";
-    
     let size = difficulty === 'easy' ? 10 : difficulty === 'moderate' ? 12 : difficulty === 'hard' ? 15 : 18;
     let count = difficulty === 'easy' ? 15 : difficulty === 'moderate' ? 20 : difficulty === 'hard' ? 25 : 30;
 
@@ -258,9 +242,9 @@ function handleWordSearchGuess(guess, user) {
     }
 }
 
-// 🌸 4. BLOSSOM
+// 🌸 BLOSSOM
 function setupBlossom() {
-    vKeyboard.style.display = 'none'; document.getElementById('game-title').innerText = "BLOSSOM";
+    vKeyboard.style.display = 'none'; 
     const pangrams = ["ABOLISH", "CABINET", "ECLIPSE", "GLACIER", "JOURNEY", "KINETIC", "LOBSTER", "MACHINE", "PELICAN", "QUANTUM", "RAVIOLI", "SOCIETY", "VAMPIRE", "WHISKEY", "YOGURTS", "ZEALOUS"];
     let pan = pangrams[Math.floor(Math.random() * pangrams.length)].split('');
     let center = pan[Math.floor(Math.random() * 7)]; let outers = pan.filter(l => l !== center);
@@ -301,11 +285,10 @@ function handleBlossomGuess(guess, user) {
     }
 }
 
-// 🎴 5. MEMORY
+// 🎴 MEMORY
 function setupMemory() {
-    vKeyboard.style.display = 'none'; document.getElementById('game-title').innerText = "MEMORY";
-    let diff = document.getElementById('diff-selector').value;
-    let pairs = diff === 'easy' ? 4 : diff === 'moderate' ? 6 : diff === 'hard' ? 10 : 15;
+    vKeyboard.style.display = 'none';
+    let pairs = difficulty === 'easy' ? 4 : difficulty === 'moderate' ? 6 : difficulty === 'hard' ? 10 : 15;
     const emojis = ["🍎","🚗","🐶","⚽","🎸","🚀","💎","🔥","🍕","🧩","👻","🦄","🥑","🎧","🏆","🦖"];
     let deck = []; for(let i=0; i<pairs; i++) { deck.push(emojis[i]); deck.push(emojis[i]); }
     deck.sort(() => Math.random() - 0.5); 
@@ -343,15 +326,14 @@ function handleMemoryGuess(guess, user) {
     }, 2000);
 }
 
-// 🧩 6-10. ALGEBRAIC GRIDS
+// 🧩 ALGEBRAIC GRIDS (Duckdoku, Meowdoku)
 function setupGridGame(type) {
-    vKeyboard.style.display = 'none'; document.getElementById('game-title').innerText = type.toUpperCase();
-    let size = type === 'nonogram' ? 5 : 4; 
-    let elements = type === 'duckdoku' ? ["🦆","🦢","🦉","🐧"] : type === 'meowdoku' ? ["😺","😻","🙀","😾"] : ["1","2","3","4"];
+    vKeyboard.style.display = 'none';
+    let size = 4; let elements = type === 'duckdoku' ? ["🦆","🦢","🦉","🐧"] : ["😺","😻","🙀","😾"];
     gridData = { type, size, board: Array(size).fill().map(()=>Array(size).fill('')), solution: Array(size).fill().map(()=>Array(size).fill('')) };
     
     for(let r=0; r<size; r++) for(let c=0; c<size; c++) {
-        gridData.solution[r][c] = type==='nonogram' ? (Math.random()>0.5?'FILL':'EMPTY') : elements[(r+c)%size];
+        gridData.solution[r][c] = elements[(r+c)%size];
         gridData.board[r][c] = Math.random()>0.4 ? gridData.solution[r][c] : ''; 
     }
     renderAlgebraicGrid();
@@ -365,8 +347,7 @@ function renderAlgebraicGrid() {
         html += `<div class="alg-row"><div class="alg-cell alg-label">${r+1}</div>`;
         for(let c=0; c<gridData.size; c++) {
             let val = gridData.board[r][c];
-            let css = (gridData.type === 'nonogram' && val === 'FILL') ? 'filled' : val !== '' ? 'text-white' : '';
-            html += `<div class="alg-cell ${css}" id="alg-${r}-${c}">${val==='FILL'||val==='EMPTY'?'':val}</div>`;
+            html += `<div class="alg-cell ${val !== '' ? 'text-white' : ''}" id="alg-${r}-${c}">${val}</div>`;
         }
         html += `</div>`;
     }
@@ -383,9 +364,9 @@ function handleGridGuess(guess, user) {
     }
 }
 
-// 🌍 11-13. GEO GAMES
+// 🌍 GEO GAMES (Worldle, Globle, Capitale, Animadle)
 function setupGeoGame(type) {
-    vKeyboard.style.display = 'none'; document.getElementById('game-title').innerText = type.toUpperCase();
+    vKeyboard.style.display = 'none';
     let t; do { t = COUNTRIES[Math.floor(Math.random() * COUNTRIES.length)]; } while (geoData.target && t.name === geoData.target.name);
     geoData = { type, target: t }; secretWord = type === 'capitale' ? t.cap : t.name; prefetchDef(secretWord);
 
@@ -400,7 +381,6 @@ function handleGeoGuess(guess, user) {
     let country = COUNTRIES.find(c => c.name === guess || c.cap === guess);
     if(!country) { showToast(`⚠️ @${user.username}, '${guess}' is not a recognized geography target.`); return; }
     
-    // Haversine Distance Math
     const R = 6371; const dLat = (country.lat - geoData.target.lat)*Math.PI/180; const dLon = (country.lon - geoData.target.lon)*Math.PI/180;
     const a = Math.sin(dLat/2)*Math.sin(dLat/2) + Math.cos(geoData.target.lat*Math.PI/180)*Math.cos(country.lat*Math.PI/180)*Math.sin(dLon/2)*Math.sin(dLon/2);
     let dist = Math.round(R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)));
@@ -415,7 +395,6 @@ function handleGeoGuess(guess, user) {
     if(dist === 0) triggerEndGame(user, secretWord, 2); else updateScore(user, 1);
 }
 
-// 🐾 14. ANIMADLE
 function setupAnimadle() {
     vKeyboard.style.display = 'none'; document.getElementById('game-title').innerText = "ANIMADLE";
     geoData.target = ANIMALS[Math.floor(Math.random() * ANIMALS.length)]; secretWord = geoData.target.name; prefetchDef(secretWord);
@@ -434,57 +413,7 @@ function handleAnimadleGuess(guess, user) {
     if(anim.name === t.name) triggerEndGame(user, secretWord, 2); else updateScore(user, 1);
 }
 
-// ⬛ 15. REDACTLE
-async function setupRedactle() {
-    vKeyboard.style.display = 'none'; document.getElementById('game-title').innerText = "REDACTLE";
-    board.innerHTML = `<div class="text-yellow-400 animate-pulse mt-10 text-xl font-bold">📡 Fetching Wiki Database...</div>`;
-    const topics = ["Earth", "Computer", "Ocean", "Music", "Science"];
-    secretWord = topics[Math.floor(Math.random() * topics.length)].toUpperCase(); prefetchDef(secretWord);
-    try {
-        const res = await fetch(`https://en.wikipedia.org/w/api.php?action=query&prop=extracts&exintro=1&explaintext=1&titles=${secretWord}&format=json&origin=*`);
-        const data = await res.json();
-        let text = data.query.pages[Object.keys(data.query.pages)[0]].extract;
-        redactleData = { words: text.split(/\s+/), revealed: ["THE","IS","IN","OF","AND","A","TO","OR","AS","IT"] };
-        renderRedactle();
-    } catch(err) { board.innerHTML = "Wiki API Error."; }
-}
-function renderRedactle() {
-    let html = `<div class="redactle-board w-full max-w-4xl">`;
-    redactleData.words.forEach(w => {
-        let clean = w.replace(/[^a-zA-Z]/g, "").toUpperCase();
-        if(redactleData.revealed.includes(clean)) html += `<span class="redact-word revealed">${w}</span> `;
-        else html += `<span class="redact-word">${"█".repeat(clean.length||1)}</span> `;
-    });
-    board.innerHTML = html + `</div>`;
-}
-function handleRedactleGuess(guess, user) {
-    let clean = guess.replace(/[^A-Z]/g, "");
-    if(clean && !redactleData.revealed.includes(clean)) {
-        redactleData.revealed.push(clean); renderRedactle();
-        if(clean === secretWord) triggerEndGame(user, secretWord, 5); else updateScore(user, 1);
-    }
-}
-
-
-// --- 🔌 INPUT, BOTS, AND NETWORKING ---
-function makeDraggable(wrapId, handleId) {
-    const wrap = document.getElementById(wrapId); const handle = document.getElementById(handleId);
-    let isDragging = false, offX, offY;
-    handle.addEventListener('mousedown', e => { isDragging=true; offX=e.clientX-wrap.offsetLeft; offY=e.clientY-wrap.offsetTop; });
-    document.addEventListener('mousemove', e => { if(isDragging) { wrap.style.left=(e.clientX-offX)+'px'; wrap.style.top=(e.clientY-offY)+'px'; wrap.style.bottom='auto'; wrap.style.right='auto'; } });
-    document.addEventListener('mouseup', () => isDragging=false);
-}
-makeDraggable('instruction-wrapper', 'inst-drag');
-makeDraggable('chat-wrapper', 'chat-drag');
-
-document.getElementById('btn-toggle-instructions').addEventListener('click', () => document.getElementById('instruction-panel').classList.toggle('scale-y-0'));
-document.getElementById('btn-toggle-chat').addEventListener('click', () => document.getElementById('chat-panel').classList.toggle('scale-y-0'));
-document.getElementById('btn-toggle-host').addEventListener('click', () => document.getElementById('host-menu').classList.toggle('scale-0'));
-document.getElementById('btn-toggle-input').addEventListener('click', e => { 
-    let p = document.getElementById('host-input-panel'); 
-    p.classList.contains('scale-y-0') ? (p.classList.remove('scale-y-0','h-0','p-0','border-0', 'opacity-0'), e.target.innerText="▼ Hide Input") : (p.classList.add('scale-y-0','h-0','p-0','border-0', 'opacity-0'), e.target.innerText="▲ Show Input"); 
-});
-
+// --- 🤖 BOTS & INPUT PIPELINE ---
 socket.on('sys_status', status => {
     if(sysMode !== 'demo') {
         let isDemoMode = status === 'DEMO'; sysMode = isDemoMode ? 'preview' : 'live';
@@ -492,7 +421,14 @@ socket.on('sys_status', status => {
         b.className = `status-badge ${isDemoMode ? 'status-preview' : 'status-live'}`; b.innerText = isDemoMode ? '🟡 PREVIEW' : '🟢 LIVE';
     }
 });
-socket.on('chat', data => { if(sysMode === 'live') processInput(data.comment, data); });
+socket.on('chat', data => { if(sysMode === 'live') { appendChat(data); processInput(data.comment, data); }});
+
+function appendChat(data) {
+    const chatBox = document.getElementById('live-chat'); if(!data.comment) return;
+    const li = document.createElement('li'); li.className = 'flex items-start gap-2 bg-white/5 p-2 rounded-lg border-l-2 border-teal-400';
+    li.innerHTML = `<img src="${data.profilePic}" class="w-6 h-6 rounded-full"><div class="text-[10px]"><span class="font-bold text-gray-300">${data.username}</span><p class="text-white">${data.comment}</p></div>`;
+    chatBox.appendChild(li); if (chatBox.children.length > 25) chatBox.removeChild(chatBox.firstChild);
+}
 
 setInterval(() => {
     if(sysMode === 'demo' && !isGameOver) {
@@ -506,12 +442,12 @@ setInterval(() => {
         else if(['worldle','globle','capitale'].includes(activeGame)) { g = intel>0.9?secretWord:COUNTRIES[Math.floor(Math.random()*COUNTRIES.length)].name; }
         else if(activeGame==='animadle') g = intel>0.9?secretWord:ANIMALS[Math.floor(Math.random()*ANIMALS.length)].name;
         
-        if(g) processInput(g, fake);
+        if(g) { appendChat({username:fake.username, comment:g, profilePic:fake.profilePic}); processInput(g, fake); }
     }
-}, 3000);
+}, 3500);
 
 document.getElementById('host-test-input').addEventListener('keydown', (e) => { 
-    if(e.key === 'Enter' || e.key === 'ArrowDown') { let i = e.target; if(i.value) processInput(i.value, {uniqueId: 'host', username: 'HOST', profilePic: 'https://ui-avatars.com/api/?name=H'}); i.value = ""; }
+    if(e.key === 'Enter' || e.key === 'ArrowDown') { let i = e.target; if(i.value) { appendChat({username:'HOST', comment:i.value, profilePic: "https://ui-avatars.com/api/?name=H"}); processInput(i.value, {uniqueId: 'host', username: 'HOST', profilePic: 'https://ui-avatars.com/api/?name=H'}); } i.value = ""; }
 });
 document.getElementById('btn-test-guess').addEventListener('click', () => { let i = document.getElementById('host-test-input'); if(i.value) processInput(i.value, {uniqueId: 'host', username: 'HOST', profilePic: 'https://ui-avatars.com/api/?name=H'}); i.value = ""; });
 
@@ -519,7 +455,7 @@ function processInput(guess, user) {
     if (isGameOver) return; guess = guess.trim().toUpperCase();
     if(board.children[0] && board.children[0].innerText.includes("System")) board.innerHTML = "";
 
-    if(['duckdoku','meowdoku','murdoku','kakuro','nonogram'].includes(activeGame)) handleGridGuess(guess, user);
+    if(['duckdoku','meowdoku'].includes(activeGame)) handleGridGuess(guess, user);
     else if(['worldle','globle','capitale'].includes(activeGame)) handleGeoGuess(guess, user);
     else if(activeGame === 'animadle') handleAnimadleGuess(guess, user);
     else if(activeGame === 'redactle') handleRedactleGuess(guess, user);
