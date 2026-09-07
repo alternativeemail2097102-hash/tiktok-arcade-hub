@@ -2,18 +2,11 @@ const socket = io();
 
 // --- 🐛 SYSTEM LOGGER ---
 const sysLogs = [];
-function logError(err, suggestion) {
-    sysLogs.unshift(`[${new Date().toLocaleTimeString()}] ERROR: ${err} | FIX: ${suggestion}`);
-    if(sysLogs.length > 50) sysLogs.pop();
-}
-window.onerror = (msg) => logError(msg, "Check syntax or variable references.");
+function logError(err, fix) { sysLogs.unshift(`[${new Date().toLocaleTimeString()}] ERROR: ${err} | FIX: ${fix}`); if(sysLogs.length > 50) sysLogs.pop(); }
+window.onerror = (msg) => logError(msg, "Check syntax or variables.");
 
 // --- ⚙️ MASTER STATE ---
-let activeGame = 'word500';
-let difficulty = 'moderate'; 
-let wordLength = 5;
-let sysMode = 'preview'; 
-
+let activeGame = 'word500', difficulty = 'moderate', wordLength = 5, sysMode = 'preview'; 
 let dictAll = {}, dictCommon = {}; 
 let contextoData = [], contextoGuesses = [], bestContextoRank = 1000;
 let wordSearchData = { grid: [], words: [], size: 0 };
@@ -30,9 +23,11 @@ const board = document.getElementById('game-board');
 const vKeyboard = document.getElementById('virtual-keyboard');
 const instBar = document.getElementById('game-instructions');
 
-// --- 📖 INSTRUCTIONS ---
+// --- 📖 DATABASES & INSTRUCTIONS ---
+const COUNTRIES = [{ name: "UNITED STATES", cap: "WASHINGTON", lat: 37.09, lon: -95.71, iso: "us" }, { name: "CANADA", cap: "OTTAWA", lat: 56.13, lon: -106.34, iso: "ca" }, { name: "BRAZIL", cap: "BRASILIA", lat: -14.23, lon: -51.92, iso: "br" }, { name: "FRANCE", cap: "PARIS", lat: 46.22, lon: 2.21, iso: "fr" }, { name: "JAPAN", cap: "TOKYO", lat: 36.20, lon: 138.25, iso: "jp" }, { name: "AUSTRALIA", cap: "CANBERRA", lat: -25.27, lon: 133.77, iso: "au" }, { name: "INDONESIA", cap: "JAKARTA", lat: -0.78, lon: 113.92, iso: "id" }, { name: "MALAYSIA", cap: "KUALA LUMPUR", lat: 4.21, lon: 101.97, iso: "my" }, { name: "EGYPT", cap: "CAIRO", lat: 26.82, lon: 30.80, iso: "eg" }, { name: "SPAIN", cap: "MADRID", lat: 40.46, lon: -3.74, iso: "es" }];
+const ANIMALS = [{ name: "LION", class: "Mammal", diet: "Carnivore", habitat: "Savanna" }, { name: "EAGLE", class: "Bird", diet: "Carnivore", habitat: "Mountains" }, { name: "FROG", class: "Amphibian", diet: "Carnivore", habitat: "Swamp" }, { name: "SHARK", class: "Fish", diet: "Carnivore", habitat: "Ocean" }, { name: "HORSE", class: "Mammal", diet: "Herbivore", habitat: "Plains" }];
 const INST = {
-    word500: { en: "<b>WORD500:</b> Guess the hidden word! Type in chat.<br><span class='text-green-400'>Green</span> = Right letter & spot.<br><span class='text-yellow-400'>Yellow</span> = Right letter, wrong spot." },
+    word500: { en: "<b>WORD500:</b> Guess the hidden word! Type in chat.<br>Host marks colors manually." },
     contexto: { en: "<b>CONTEXTO:</b> Guess the secret word. Words are ranked by AI meaning. Rank #1 wins!" },
     wordsearch: { en: "<b>WORD SEARCH:</b> Find the hidden words in the grid! Type the word." },
     blossom: { en: "<b>BLOSSOM:</b> Make words using 7 letters. MUST use center letter! Letters can be reused." },
@@ -48,67 +43,61 @@ const INST = {
     animadle: { en: "<b>ANIMADLE:</b> Guess the animal to reveal its Class, Diet, and Habitat!" },
     redactle: { en: "<b>REDACTLE:</b> Guess words to un-redact the Wikipedia article!" }
 };
-
 function updateInstructions() { instBar.innerHTML = INST[activeGame]?.en || "Rules loaded."; }
 
-// --- 🚀 INSTANT BOOT & BACKGROUND LAZY LOADING ---
-async function loadDictionaries() {
+// --- 🚀 INSTANT BOOT & TRUE MULTITHREADING DICTIONARY ---
+async function bootSystem() {
     try {
-        // 1. Instant Boot: Load 10k Common Words (Loads in ~0.1s)
-        instBar.innerHTML = `<span class="text-yellow-400">Loading Base Lexicon...</span>`;
-        const rC = await fetch('https://raw.githubusercontent.com/first20hours/google-10000-english/master/google-10000-english-no-swears.txt');
-        const textC = await rC.text();
-        textC.split(/\r?\n/).forEach(w => { 
-            const c = w.trim().toUpperCase(); 
-            if(c) {
-                if(!dictCommon[c.length]) dictCommon[c.length]=[]; dictCommon[c.length].push(c); 
-                if(!dictAll[c.length]) dictAll[c.length]=[]; dictAll[c.length].push(c); 
-            }
-        });
-
-        startNewRound(); // Start the game immediately!
-
-        // 2. Background Load: 370k Extended Lexicon
-        instBar.innerHTML = `<span class="text-teal-400 animate-pulse">Game Ready! Downloading Extended Lexicon...</span>`;
-        const rA = await fetch('https://raw.githubusercontent.com/dwyl/english-words/master/words_alpha.txt');
-        const textAll = await rA.text();
-        const lines = textAll.split(/\r?\n/);
+        // 1. Instant Boot (10k Words only takes 50ms to parse)
+        const res = await fetch('https://raw.githubusercontent.com/first20hours/google-10000-english/master/google-10000-english-no-swears.txt');
+        const text = await res.text();
+        text.split(/\r?\n/).forEach(w => { const c = w.trim().toUpperCase(); if(c) { if(!dictCommon[c.length]) dictCommon[c.length]=[]; dictCommon[c.length].push(c); } });
+        dictAll = JSON.parse(JSON.stringify(dictCommon)); // Deep copy as fallback
         
-        let currentIndex = 0;
+        startNewRound(); // Start games instantly
+
+        // 2. Web Worker (Downloads & Parses 370k words on a separate CPU core, ZERO lag)
+        const workerCode = `
+            self.onmessage = async function() {
+                try {
+                    const res = await fetch('https://raw.githubusercontent.com/dwyl/english-words/master/words_alpha.txt');
+                    const text = await res.text();
+                    const words = text.split(/\\r?\\n/);
+                    let dict = {};
+                    for(let i=0; i<words.length; i++){
+                        let w = words[i].trim().toUpperCase();
+                        if(w) { if(!dict[w.length]) dict[w.length] = []; dict[w.length].push(w); }
+                        if(i % 10000 === 0) self.postMessage({status: 'progress', pct: Math.floor((i/words.length)*100)});
+                    }
+                    self.postMessage({status: 'done', dict: dict});
+                } catch(e) { self.postMessage({status: 'error'}); }
+            }
+        `;
+        const blob = new Blob([workerCode], { type: 'application/javascript' });
+        const worker = new Worker(URL.createObjectURL(blob));
         
-        // Micro-chunk processing to prevent browser lag
-        function processChunk() {
-            let endIndex = Math.min(currentIndex + 5000, lines.length);
-            for(; currentIndex < endIndex; currentIndex++) {
-                const c = lines[currentIndex].trim().toUpperCase();
-                if(c) {
-                    if(!dictAll[c.length]) dictAll[c.length]=[]; 
-                    dictAll[c.length].push(c); 
-                }
+        worker.onmessage = function(e) {
+            const badge = document.getElementById('sys-mode-badge');
+            if (e.data.status === 'progress') {
+                badge.innerText = `🔄 LOADING DICT: ${e.data.pct}%`;
+            } else if (e.data.status === 'done') {
+                dictAll = e.data.dict;
+                badge.innerText = sysMode === 'live' ? '🟢 LIVE NOW' : sysMode === 'demo' ? '🟣 DEMO MODE' : '🟡 PREVIEW MODE';
+                console.log("✅ 370k Lexicon loaded successfully in background thread.");
             }
-            if (currentIndex < lines.length) {
-                requestAnimationFrame(processChunk);
-            } else {
-                updateInstructions();
-                console.log("✅ Extended Lexicon fully loaded without lag.");
-            }
-        }
-        requestAnimationFrame(processChunk);
+        };
+        worker.postMessage('start');
 
-    } catch (err) { 
-        logError(err, "Dictionary fetch failed. Check internet."); 
-        startNewRound();
-    }
+    } catch (err) { logError(err, "Network fetch failed."); }
 }
-loadDictionaries();
-
-function prefetchDef(word) {
-    preloadedDef = "Formal definition currently unavailable.";
-    if(['worldle','globle','capitale','animadle'].includes(activeGame)) { preloadedDef = "Geography & Nature Master!"; return; }
-    fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${word.toLowerCase()}`).then(res => res.json()).then(data => { preloadedDef = data[0].meanings[0].definitions[0].definition; }).catch(e=>{});
-}
+bootSystem();
 
 function getValidTargets(arr) { return arr ? arr.filter(w => !w.endsWith('S') && !w.endsWith('ES') && !w.endsWith('ED')) : []; }
+function prefetchDef(word) {
+    preloadedDef = "Formal definition currently unavailable.";
+    if(['worldle','globle','capitale','animadle'].includes(activeGame)) { preloadedDef = "Geography & Nature Database!"; return; }
+    fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${word.toLowerCase()}`).then(res => res.json()).then(data => { preloadedDef = data[0].meanings[0].definitions[0].definition; }).catch(e=>{});
+}
 
 // --- ⌨️ VIRTUAL KEYBOARD ---
 function renderKeyboard() {
@@ -145,28 +134,26 @@ function startNewRound() {
 // 🟩 1. WORD 500
 function setupWord500() {
     document.getElementById('game-title').innerText = "WORD 500";
-    let len = parseInt(document.getElementById('length-slider').value) || 5;
-    let list = getValidTargets((difficulty === 'easy' || difficulty === 'moderate') ? dictCommon[len] : dictAll[len]);
-    if(!list || list.length===0) list = dictAll[len];
-    secretWord = list[Math.floor(Math.random() * list.length)];
-    prefetchDef(secretWord); renderKeyboard();
+    let list = getValidTargets((difficulty === 'easy' || difficulty === 'moderate') ? dictCommon[wordLength] : dictAll[wordLength]);
+    if(!list || list.length===0) list = dictAll[wordLength];
+    secretWord = list[Math.floor(Math.random() * list.length)]; prefetchDef(secretWord); renderKeyboard();
 }
 function handleWord500Guess(guess, user) {
-    let len = parseInt(document.getElementById('length-slider').value) || 5;
-    if (guess.length !== len || (!dictAll[len].includes(guess) && !dictCommon[len].includes(guess))) return;
+    if (guess.length !== wordLength) return;
+    if(!dictAll[wordLength].includes(guess) && !dictCommon[wordLength].includes(guess)) return;
     
     let green = 0, yellow = 0, secArr = secretWord.split(''), gsArr = guess.split('');
-    for (let i=0; i<len; i++) { if (gsArr[i] === secArr[i]) { green++; secArr[i] = null; gsArr[i] = null; } }
-    for (let i=0; i<len; i++) { if (gsArr[i] !== null) { let idx = secArr.indexOf(gsArr[i]); if (idx !== -1) { yellow++; secArr[idx] = null; } } }
+    for (let i=0; i<wordLength; i++) { if (gsArr[i] === secArr[i]) { green++; secArr[i] = null; gsArr[i] = null; } }
+    for (let i=0; i<wordLength; i++) { if (gsArr[i] !== null) { let idx = secArr.indexOf(gsArr[i]); if (idx !== -1) { yellow++; secArr[idx] = null; } } }
     
     if(green === 0 && yellow === 0) guess.split('').forEach(l => { if(!keyState[l]) keyState[l] = 'used'; }); 
     renderKeyboard();
     
     let row = document.createElement('div'); row.className = "w-row";
-    row.innerHTML = `<div class="w-player">${user.username}</div><div class="w-letters">${guess.split('').map(l => `<div class="w-letter">${l}</div>`).join('')}</div><div class="w-clues"><div class="w-clue bg-green">${green}</div><div class="w-clue bg-yellow">${yellow}</div><div class="w-clue bg-red">${len-green-yellow}</div></div>`;
+    row.innerHTML = `<div class="w-player">${user.username}</div><div class="w-letters">${guess.split('').map(l => `<div class="w-letter">${l}</div>`).join('')}</div><div class="w-clues"><div class="w-clue bg-green">${green}</div><div class="w-clue bg-yellow">${yellow}</div><div class="w-clue bg-red">${wordLength-green-yellow}</div></div>`;
     board.prepend(row);
-    if(board.children.length > Math.max(6, 20-len)) board.removeChild(board.lastChild);
-    if (green === len) triggerEndGame(user, guess, 1);
+    if(board.children.length > Math.max(6, 20-wordLength)) board.removeChild(board.lastChild);
+    if (green === wordLength) triggerEndGame(user, guess, 1);
 }
 
 // 🎯 2. CONTEXTO
@@ -176,7 +163,6 @@ async function setupContexto() {
     board.innerHTML = `<div class="text-yellow-400 animate-pulse mt-10 font-bold tracking-widest text-xl text-center w-full">🧠 AI Building Semantic Tree...</div>`;
     let len = (difficulty === 'hard' || difficulty === 'extreme') ? Math.floor(Math.random() * 3) + 7 : Math.floor(Math.random() * 3) + 4;
     let list = getValidTargets(dictCommon[len]); secretWord = list[Math.floor(Math.random() * list.length)]; prefetchDef(secretWord);
-    
     try {
         const res = await fetch(`https://api.datamuse.com/words?ml=${secretWord}&max=1000`);
         contextoData = (await res.json()).map(i => i.word.toUpperCase()); contextoData.unshift(secretWord);
@@ -184,16 +170,13 @@ async function setupContexto() {
     } catch (err) { activeGame = 'word500'; startNewRound(); }
 }
 function handleContextoGuess(guess, user) {
-    if(!dictAll[guess.length]?.includes(guess) && !dictCommon[guess.length]?.includes(guess)) { showToast("⚠️ Not a valid word!"); return; }
+    if(!dictAll[guess.length]?.includes(guess) && !dictCommon[guess.length]?.includes(guess)) { showToast("⚠️ Not a dictionary word!"); return; }
     if(contextoGuesses.some(g => g.word === guess)) { showToast("⚠️ Already guessed!"); return; }
-
     let rank = contextoData.indexOf(guess);
     if (rank === -1) { let hash = 0; for (let i = 0; i < guess.length; i++) hash = guess.charCodeAt(i) + ((hash << 5) - hash); rank = 1001 + (Math.abs(hash) % 89000); }
     if(rank < bestContextoRank) bestContextoRank = rank;
-    
     contextoGuesses.push({ word: guess, rank: rank, username: user.username });
     contextoGuesses.sort((a, b) => a.rank - b.rank); 
-    
     const cBoard = document.getElementById('contexto-board'); if(!cBoard) return; cBoard.innerHTML = "";
     contextoGuesses.slice(0, 10).forEach(g => {
         let percent = Math.max(5, 100 - (g.rank / 100)); let color = g.rank === 0 ? '#22c55e' : g.rank < 50 ? '#eab308' : g.rank < 500 ? '#f97316' : '#6b7280';
@@ -208,16 +191,14 @@ function handleContextoGuess(guess, user) {
 function setupWordSearch() {
     vKeyboard.style.display = 'none'; colorIdx = 0;
     document.getElementById('game-title').innerText = "WORD SEARCH";
-    let diff = document.getElementById('diff-selector').value;
-    let size = diff === 'easy' ? 10 : diff === 'moderate' ? 12 : diff === 'hard' ? 15 : 18;
-    let count = diff === 'easy' ? 15 : diff === 'moderate' ? 20 : diff === 'hard' ? 25 : 30;
+    let size = difficulty === 'easy' ? 10 : difficulty === 'moderate' ? 12 : difficulty === 'hard' ? 15 : 18;
+    let count = difficulty === 'easy' ? 15 : difficulty === 'moderate' ? 20 : difficulty === 'hard' ? 25 : 30;
 
     let valid = getValidTargets(dictCommon[4].concat(dictCommon[5], dictCommon[6]).filter(w => w.length <= size - 2));
     let chosen = []; for(let i=0; i<count; i++) chosen.push(valid[Math.floor(Math.random() * valid.length)]);
-
     let grid = Array(size).fill(null).map(() => Array(size).fill(''));
     let placedInfo = [];
-    let dirs = [[0,1,"Horizontal"], [1,0,"Vertical"]]; if(diff !== 'easy') dirs.push([1,1,"Diagonal"]);
+    let dirs = [[0,1,"Horizontal"], [1,0,"Vertical"]]; if(difficulty !== 'easy') dirs.push([1,1,"Diagonal"]);
 
     chosen.forEach(word => {
         let placed = false, tries = 0;
@@ -289,7 +270,7 @@ function setupBlossom() {
     let angle = 0, html = `<div class="blossom-container"><div class="petal center"><span>${center}</span></div>`;
     outers.forEach(l => {
         let x = Math.cos(angle) * 100; let y = Math.sin(angle) * 100; let rot = angle * (180/Math.PI);
-        html += `<div class="petal" style="transform: translate(calc(-50% + ${x}px), calc(-50% + ${y}px)) rotate(${rot}deg); top: 50%; left: 50%; --rot: ${rot}deg;"><span>${l}</span></div>`;
+        html += `<div class="petal" style="transform: translate(calc(-50% + ${x}px), calc(-50% + ${y}px)); top: 50%; left: 50%;"><span>${l}</span></div>`;
         angle += (Math.PI * 2) / 6;
     });
     html += `</div><div class="text-yellow-400 font-black text-2xl mt-6 text-center w-full">FOUND: <span id="blossom-count">0</span> / ${targets.length}</div><div class="flex flex-wrap gap-2 mt-4 w-full justify-center max-w-4xl" id="blossom-found-list"></div>`;
@@ -313,8 +294,7 @@ function handleBlossomGuess(guess, user) {
 // 🎴 5. MEMORY
 function setupMemory() {
     vKeyboard.style.display = 'none'; document.getElementById('game-title').innerText = "MEMORY";
-    let diff = document.getElementById('diff-selector').value;
-    let pairs = diff === 'easy' ? 4 : diff === 'moderate' ? 6 : diff === 'hard' ? 10 : 15;
+    let pairs = difficulty === 'easy' ? 4 : difficulty === 'moderate' ? 6 : difficulty === 'hard' ? 10 : 15;
     const emojis = ["🍎","🚗","🐶","⚽","🎸","🚀","💎","🔥","🍕","🧩","👻","🦄","🥑","🎧","🏆","🦖"];
     let deck = []; for(let i=0; i<pairs; i++) { deck.push(emojis[i]); deck.push(emojis[i]); }
     deck.sort(() => Math.random() - 0.5); 
@@ -392,29 +372,21 @@ function handleGridGuess(guess, user) {
 }
 
 // 🌍 11-13. GEO GAMES
-const GEO_DB = [
-    { name: "UNITED STATES", cap: "WASHINGTON", lat: 37.09, lon: -95.71, iso: "us" }, { name: "CANADA", cap: "OTTAWA", lat: 56.13, lon: -106.34, iso: "ca" },
-    { name: "BRAZIL", cap: "BRASILIA", lat: -14.23, lon: -51.92, iso: "br" }, { name: "FRANCE", cap: "PARIS", lat: 46.22, lon: 2.21, iso: "fr" },
-    { name: "JAPAN", cap: "TOKYO", lat: 36.20, lon: 138.25, iso: "jp" }, { name: "AUSTRALIA", cap: "CANBERRA", lat: -25.27, lon: 133.77, iso: "au" },
-    { name: "INDONESIA", cap: "JAKARTA", lat: -0.78, lon: 113.92, iso: "id" }
-];
 function setupGeoGame(type) {
     vKeyboard.style.display = 'none'; document.getElementById('game-title').innerText = type.toUpperCase();
-    let t; do { t = GEO_DB[Math.floor(Math.random() * GEO_DB.length)]; } while (geoData.target && t.name === geoData.target.name);
+    let t; do { t = COUNTRIES[Math.floor(Math.random() * COUNTRIES.length)]; } while (geoData.target && t.name === geoData.target.name);
     geoData = { type, target: t }; secretWord = type === 'capitale' ? t.cap : t.name; prefetchDef(secretWord);
 
     if(type === 'worldle') {
         board.innerHTML = `<img src="https://raw.githubusercontent.com/djaiss/mapsicon/master/all/${t.iso}/vector.svg" class="worldle-img" onerror="this.style.display='none'">
         <div id="geo-list" class="w-full max-w-xl mt-4 flex flex-col gap-2"></div>`;
-    } else {
-        board.innerHTML = `<div id="geo-list" class="w-full max-w-xl mt-4 flex flex-col gap-2"></div>`;
-    }
+    } else board.innerHTML = `<div id="geo-list" class="w-full max-w-xl mt-4 flex flex-col gap-2"></div>`;
 }
 function handleGeoGuess(guess, user) {
-    let country = GEO_DB.find(c => c.name === guess || c.cap === guess);
+    let country = COUNTRIES.find(c => c.name === guess || c.cap === guess);
     if(!country) { showToast(`⚠️ @${user.username}, '${guess}' is not a recognized geography target.`); return; }
     
-    // Haversine Distance
+    // Haversine
     const R = 6371; const dLat = (country.lat - geoData.target.lat)*Math.PI/180; const dLon = (country.lon - geoData.target.lon)*Math.PI/180;
     const a = Math.sin(dLat/2)*Math.sin(dLat/2) + Math.cos(geoData.target.lat*Math.PI/180)*Math.cos(country.lat*Math.PI/180)*Math.sin(dLon/2)*Math.sin(dLon/2);
     let dist = Math.round(R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)));
@@ -482,7 +454,7 @@ function handleRedactleGuess(guess, user) {
 // --- 🤖 BOTS & INPUT PIPELINE ---
 socket.on('sys_status', status => {
     if(sysMode !== 'demo') {
-        isDemoMode = status === 'DEMO'; sysMode = isDemoMode ? 'preview' : 'live';
+        let isDemoMode = status === 'DEMO'; sysMode = isDemoMode ? 'preview' : 'live';
         const b = document.getElementById('sys-mode-badge');
         b.className = `status-badge ${isDemoMode ? 'status-preview' : 'status-live'}`; b.innerText = isDemoMode ? '🟡 PREVIEW' : '🟢 LIVE';
     }
@@ -493,7 +465,7 @@ setInterval(() => {
     if(sysMode === 'demo' && !isGameOver) {
         let intel = Math.random(); let fake = {username: intel>0.8?"EinsteinBot":intel>0.4?"AvgBot":"NoobBot", profilePic: "https://ui-avatars.com/api/?name=B"}; let g = "";
         
-        if(activeGame==='word500') g = intel>0.9?secretWord:dictCommon[wordLength][Math.floor(Math.random()*dictCommon[wordLength].length)];
+        if(activeGame==='word500') g = intel>0.8?secretWord:dictCommon[wordLength]?.[Math.floor(Math.random()*dictCommon[wordLength].length)];
         else if(activeGame==='contexto') g = intel>0.9?secretWord:contextoData[Math.max(1, bestContextoRank-Math.floor(Math.random()*50))]||secretWord;
         else if(activeGame==='wordsearch') { if(intel>0.4 && wordSearchData.words.length>0) g = wordSearchData.words[0].word; }
         else if(activeGame==='blossom') { if(intel>0.5 && blossomData.targets.length>0) g = blossomData.targets[Math.floor(Math.random()*blossomData.targets.length)]; }
@@ -561,9 +533,10 @@ document.getElementById('btn-hint').addEventListener('click', () => {
     else if (activeGame === 'contexto') { let t = Math.floor(bestContextoRank/2); if(t<1)t=1; let w = contextoData[t]||secretWord; processInput(w, {username: "SYSTEM HINT", profilePic: "https://ui-avatars.com/api/?name=SYS&background=eab308"}); showToast(`💡 INJECTED Rank #${t} to board.`, true); }
     else if (activeGame === 'wordsearch' && wordSearchData.words.length>0) { let w = wordSearchData.words[0]; showToast(`💡 HINT: Find <b>[ ${w.word} ]</b> starting at ${w.start} going ${w.dir}!`, true); }
     else if (activeGame === 'blossom') { showToast(`💡 HINT: Find a word starting with <b>[ ${blossomData.targets[Math.floor(Math.random()*blossomData.targets.length)].charAt(0)} ]</b>`, true); }
-    else if (activeGame === 'worldle') { showToast(`💡 HINT: The target is ${secretWord.length} letters long!`, true); }
+    else if (['worldle','globle','capitale'].includes(activeGame)) { showToast(`💡 HINT: The target is ${secretWord.length} letters long!`, true); }
 });
 
+// UI Bindings
 document.querySelectorAll('.tab-btn').forEach(btn => { btn.addEventListener('click', (e) => { document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('text-teal-400', 'border-b-4', 'border-teal-400')); e.target.classList.add('text-teal-400', 'border-b-4', 'border-teal-400'); document.querySelectorAll('.tab-content').forEach(c => c.classList.add('hidden')); document.getElementById(e.target.getAttribute('data-target')).classList.remove('hidden'); document.getElementById(e.target.getAttribute('data-target')).classList.add('flex'); }); });
 document.getElementById('mode-selector').addEventListener('change', e => { sysMode = e.target.value; const b = document.getElementById('sys-mode-badge'); b.className = `status-badge status-${sysMode}`; b.innerText = sysMode === 'live' ? '🟢 LIVE MODE' : sysMode === 'demo' ? '🟣 DEMO (BOTS)' : '🟡 PREVIEW'; });
 document.getElementById('theme-selector').addEventListener('change', e => document.body.className = e.target.value);
@@ -578,3 +551,7 @@ document.getElementById('zoom-slider').addEventListener('input', (e) => { docume
 document.getElementById('btn-reset-score').addEventListener('click', () => { if(confirm("Wipe all leaderboards?")) fetch('/api/reset_scores', {method: 'POST'}); });
 document.getElementById('lang-selector').addEventListener('change', updateInstructions);
 document.getElementById('btn-fullscreen').addEventListener('click', () => { if (!document.fullscreenElement) document.documentElement.requestFullscreen(); else if (document.exitFullscreen) document.exitFullscreen(); });
+
+// Drag setup
+makeDraggable('instruction-wrapper', 'inst-drag');
+makeDraggable('chat-wrapper', 'chat-drag');
